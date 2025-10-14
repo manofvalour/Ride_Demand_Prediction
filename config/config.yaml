@@ -6,3 +6,12 @@ data_ingestion:
   weather_data_url: https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline
   taxi_data_local_file_path: artifacts/data_ingestion/taxi_data.parquet
   weather_data_local_file_path: artifacts/data_ingestion/weather_data.csv
+
+
+data_transformation:
+  root_dir: artifacts/data_transformation
+  feature_store_url_path: dfd
+  shapefile_url: dds
+  transformed_data_file_path: artifacts/data_transformation/transformed_data.csv
+  
+  

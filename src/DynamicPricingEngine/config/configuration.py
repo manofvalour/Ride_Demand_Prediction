@@ -1,7 +1,10 @@
 from src.DynamicPricingEngine.utils.common_utils import create_dir, read_yaml
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
-from src.DynamicPricingEngine.entity.config_entity import DataIngestionConfig
+from src.DynamicPricingEngine.entity.config_entity import (DataIngestionConfig,
+                                                           DataTransformationConfig,
+                                                           ModelTrainerConfig,
+                                                           DataValidationConfig)
 from src.DynamicPricingEngine.constants import *
 
 from pathlib import Path
@@ -46,4 +49,13 @@ class ConfigurationManager:
 
         except Exception as e:
             logger.error("Cannot get the data ingestion config", e)
+            raise RideDemandException(e,sys)
+        
+    def get_data_transformation_config(self)-> DataTransformationConfig:
+        config = self.config.data_transformation
+
+        try:
+            pass
+
+        except Exception as e:
             raise RideDemandException(e,sys)
