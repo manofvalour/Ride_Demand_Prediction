@@ -1,11 +1,17 @@
 from src.DynamicPricingEngine.logger.logger import logger
-from src.DynamicPricingEngine.exception.customexception import DynamicPricingException
+from src.DynamicPricingEngine.exception.customexception import RideDemandException
+from src.DynamicPricingEngine.pipeline.feature_pipeline import FeaturePipeline
 import sys
 
-if __name__=="__main__()":
+if __name__=="__main__":
+
+    STAGE_NAME = 'Feature Pipeline Stage'
     
     try:
-        logger.info("Testing the file system")
-        1/0
+        logger.info(f"{STAGE_NAME} initiated")
+        feature_pipeline = FeaturePipeline()
+        feature_pipeline.initiate_data_ingestion()
+        logger.info(f"{STAGE_NAME} completed")
+
     except Exception as e:
-        raise DynamicPricingException(e,sys)
+        raise RideDemandException(e,sys)

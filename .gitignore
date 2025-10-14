@@ -5,3 +5,6 @@ artifacts/
 logs/
 notebook/
 .env
+logs/
+artifacts/
+.env

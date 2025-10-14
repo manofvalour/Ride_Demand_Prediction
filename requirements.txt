@@ -20,7 +20,7 @@ uvicorn
 ipykernel
 python_box
 beautifulsoup4
-pyspark
+python_dotenv
 geopandas
 statsmodels
 plotly

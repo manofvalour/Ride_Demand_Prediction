@@ -2,7 +2,7 @@ import sys
 from src.DynamicPricingEngine.logger.logger import logger
 
 
-class DynamicPricingException(Exception):
+class RideDemandException(Exception):
     def __init__(self, error_detail, error:sys):
         super().__init__(error_detail)
 

@@ -1,0 +1,8 @@
+artifacts_root: artifacts
+
+data_ingestion:
+  root_dir: artifacts/data_ingestion
+  taxi_data_url: https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page
+  weather_data_url: https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline
+  taxi_data_local_file_path: artifacts/data_ingestion/taxi_data.parquet
+  weather_data_local_file_path: artifacts/data_ingestion/weather_data.csv

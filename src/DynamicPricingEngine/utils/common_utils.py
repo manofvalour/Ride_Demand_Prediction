@@ -3,12 +3,13 @@ from box import ConfigBox
 import dill
 import os,sys
 from ensure import ensure_annotations
-from pathlib import Path
-from typing import Any, List
+from typing import Any, List, Union
+from types import NoneType
 from box.exceptions import BoxValueError
+from datetime import datetime, timedelta
+from pathlib import Path
 
-
-from src.DynamicPricingEngine.exception.customexception import DynamicPricingException
+from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
 
 
@@ -19,7 +20,7 @@ from src.DynamicPricingEngine.logger.logger import logger
 ## read yaml
 
 @ensure_annotations
-def read_yaml(path_to_yaml_file: str)->ConfigBox:
+def read_yaml(path_to_yaml_file: Path)->ConfigBox:
     """
 
     Function to read yaml file from a given path
@@ -47,11 +48,37 @@ def read_yaml(path_to_yaml_file: str)->ConfigBox:
 
     except Exception as e:
         logger.error(f"{path_to_yaml_file} doesn't contain yaml file")
-        raise DynamicPricingException(e, sys)
+        raise RideDemandException(e, sys)
     
 
 @ensure_annotations
-def create_dir(dir_path:List, verbose=True)-> None:
+def create_dirs(dir_path: Union[str, List[str]], verbose: bool = True) -> NoneType:
+    """
+    Create one or more directories.
+
+    Args:
+        dir_path (str | List[str]): A single directory path or a list of paths to create.
+        verbose (bool, optional): Whether to log directory creation. Defaults to True.
+
+    Returns:
+        None
+    """
+    try:
+        # Normalize to a list so we can always iterate
+        if isinstance(dir_path, str):
+            dir_path = [dir_path]
+
+        for path in dir_path:
+            os.makedirs(path, exist_ok=True)
+            if verbose:
+                logger.info(f"Successfully created directory at: {path}")
+
+    except Exception as e:
+        logger.error(f"{e}")
+        raise RideDemandException(e, sys)
+
+@ensure_annotations
+def create_dir(dir_path:List, verbose:bool=True):
     """
     Function to create directiory
 
@@ -64,15 +91,15 @@ def create_dir(dir_path:List, verbose=True)-> None:
     """
 
     try:
-        for dir in dir_path:
-            os.makedirs(dir, exist_ok=True)
+        for path in dir_path:
+            os.makedirs(path, exist_ok=True)
 
             if verbose:
-                logger.info(f"{dir} successfully created!")
+                logger.info(f"successfully created directory at: {dir_path}")
 
     except Exception as e:
-        logger.error(f"unable to create dir: {dir_path}")
-        raise DynamicPricingException(e,sys)
+        logger.error(f"{e}")
+        raise RideDemandException(e,sys)
 
 
 @ensure_annotations
@@ -98,7 +125,7 @@ def save_pickle(file:object, save_path:str)-> None:
             logger.info(f"pickle file saved to path: {save_path}")
 
     except Exception as e:
-        raise DynamicPricingException(e,sys)
+        raise RideDemandException(e,sys)
     
 @ensure_annotations
 def load_pickle(file_path:str)->object:
@@ -124,11 +151,11 @@ def load_pickle(file_path:str)->object:
 
     except Exception as e:
         logger.error(f'Unable to load the pickle file from path: {file_path}')
-        raise DynamicPricingException(e,sys)
+        raise RideDemandException(e,sys)
     
 def save_yaml(file_path:str, yaml_file:object)-> None:
 
     try:
         pass
     except Exception as e:
-        raise DynamicPricingException
+        raise RideDemandException(e,sys)
