@@ -1,10 +1,7 @@
 venv/
 data/
-data/
 artifacts/
 logs/
 notebook/
-.env
 logs/
-artifacts/
 .env

@@ -55,7 +55,19 @@ class ConfigurationManager:
         config = self.config.data_transformation
 
         try:
-            pass
+            ## creating the data transformation root directory
+            create_dir([config.root_dir])
+
+            data_transformation_config = DataTransformationConfig(
+                root_dir = config.root_dir,
+                shapefile_dir = config.shapfile_dir,
+                feature_store_url_path= config.feature_store_url_path,
+                taxi_zone_shapefile_url= config.taxi_zone_shapefile_url,
+                transformed_data_file_path= config.transformed_data_file_path
+            )
+
+            return data_transformation_config
 
         except Exception as e:
+            logger.error("Cannot load the data ingestion config", e)
             raise RideDemandException(e,sys)

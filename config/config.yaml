@@ -10,8 +10,9 @@ data_ingestion:
 
 data_transformation:
   root_dir: artifacts/data_transformation
-  feature_store_url_path: dfd
-  shapefile_url: dds
-  transformed_data_file_path: artifacts/data_transformation/transformed_data.csv
+  feature_store_url_path: ssd
+  shapfile_dir: artifacts/data_transformation/shapefile
+  taxi_zone_shapefile_url: https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip
+  transformed_data_file_path: artifacts/data_transformation/transformed_data.parquet
   
   

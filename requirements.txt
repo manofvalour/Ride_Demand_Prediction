@@ -25,30 +25,7 @@ geopandas
 statsmodels
 plotly
 ensure
-
-#-e .
-ipython
-pandas
-numpy
-matplotlib
-seaborn
-flask
-dagshub
-mlflow <3
-scikit-learn
-imbalanced-learn
-dvc
-pyyaml
-dill
-google-cloud-storage
-lightgbm
-xgboost
-fastapi
-Jinja2
-uvicorn
-ipykernel
-python_box
-
-
+memory_profiler
+dask
 
 #-e .

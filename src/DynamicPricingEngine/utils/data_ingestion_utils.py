@@ -9,7 +9,7 @@ from src.DynamicPricingEngine.logger.logger import logger
 
 
 @ensure_annotations
-def leap_year(year):
+def leap_year(year:int)->bool:
 
     try:
 

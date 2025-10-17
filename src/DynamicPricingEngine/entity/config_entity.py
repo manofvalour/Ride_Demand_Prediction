@@ -13,7 +13,11 @@ class DataIngestionConfig:
 
 @dataclass
 class DataTransformationConfig:
-    pass
+    root_dir: Path
+    feature_store_url_path: Path
+    shapefile_dir: Path
+    taxi_zone_shapefile_url: Path
+    transformed_data_file_path: Path
 
 @dataclass
 class DataValidationConfig:

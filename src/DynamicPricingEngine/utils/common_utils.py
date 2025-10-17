@@ -8,6 +8,10 @@ from types import NoneType
 from box.exceptions import BoxValueError
 from datetime import datetime, timedelta
 from pathlib import Path
+import requests
+import zipfile
+import io
+import geopandas as gpd
 
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
@@ -159,3 +163,40 @@ def save_yaml(file_path:str, yaml_file:object)-> None:
         pass
     except Exception as e:
         raise RideDemandException(e,sys)
+    
+
+
+#@ensure_annotations
+def load_shapefile_from_zip(url, extract_to):
+    """
+    Downloads a ZIP file from a URL, extracts it, and loads the shapefile.
+    
+    Parameters:
+        url (str): The URL of the ZIP file.
+        extract_to (str): Directory to extract files into.
+    
+    Returns:
+        geopandas.GeoDataFrame: The loaded shapefile as a GeoDataFrame.
+    """
+    # Step 1: Download the zipfile
+    response = requests.get(url)
+    response.raise_for_status()  # raise error if download failed
+    
+    # Step 2: Extract the zipfile
+    with zipfile.ZipFile(io.BytesIO(response.content)) as z:
+        z.extractall(extract_to)
+    
+    # Step 3: Find the .shp file (main shapefile component)
+    shp_file = None
+    for root, dirs, files in os.walk(extract_to):
+        for file in files:
+            if file.endswith(".shp"):
+                shp_file = os.path.join(root, file)
+                break
+    
+    if shp_file is None:
+        raise FileNotFoundError("No .shp file found in the extracted archive.")
+    
+    # Step 4: Load shapefile into GeoDataFrame
+    gdf = gpd.read_file(shp_file)
+    return gdf

@@ -36,9 +36,6 @@ class DataIngestion:
             days= time_subtract(end_date.strftime('%Y-%m-%d'))
             start_date= end_date - timedelta(days=days-1)
 
-            weather_start_date = end_date -timedelta(days=7)
-            self.weather_start_date_str= weather_start_date.strftime("%Y-%m-%d")
-
             self.config = config
             self.start_date = start_date.strftime('%Y-%m-%d')
             self.end_date = end_date.strftime('%Y-%m-%d')
@@ -54,6 +51,7 @@ class DataIngestion:
       
       taxi_data_url = self.config.taxi_data_url
       taxi_data_date = datetime.strptime(self.start_date, "%Y-%m-%d")
+      taxi_data_end_date = datetime.strptime(self.end_date, "%Y-%m-%d")
       try:
 
         # Send GET request
@@ -78,6 +76,9 @@ class DataIngestion:
                            # "trip_distance","fare_amount", "tip_amount", "total_amount"] columns=cols
 
                     data = pd.read_parquet(full_url)
+                    data =data[data['tpep_pickup_datetime']>= taxi_data_date]
+                    data =data[data['tpep_pickup_datetime']<= taxi_data_end_date]
+
                     logger.info(f"data for {date_str} successfully downloaded")
 
 
