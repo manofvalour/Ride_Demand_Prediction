@@ -3,14 +3,13 @@ import pandas as pd
 import numpy as np
 from datetime import datetime
 import geopandas as gpd
-import time
-from memory_profiler import profile
 import dask.dataframe as dd
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import DataTransformationConfig
 from src.DynamicPricingEngine.utils.common_utils import create_dir, load_shapefile_from_zip
+from src.DynamicPricingEngine.config.configuration import ConfigurationManager
 
 
 class DataTransformation:
@@ -24,6 +23,9 @@ class DataTransformation:
         self.taxi_df = dd.read_parquet(nyc_taxi_data)
         self.weather_df = dd.read_csv(nyc_weather_data)
 
+        self.taxi_df.index = self.taxi_df.index.astype('int64')
+        self.weather_df.index = self.weather_df.index.astype('int64')
+
         #Ensure datetime types
         for col in ['tpep_pickup_datetime', 'tpep_dropoff_datetime']:
             if col in self.taxi_df.columns:
@@ -36,6 +38,7 @@ class DataTransformation:
         # Cache neighbor dictionary
         self._neighbor_dict = None
         self._neighbor_cache_path = os.path.join(self.config.shapefile_dir, "neighbors.pkl")
+
 
     def _get_neighbor_dict(self) -> dict:
         if self._neighbor_dict is not None:
@@ -67,7 +70,6 @@ class DataTransformation:
         return self._neighbor_dict
 
 
-    @profile
     def derive_target_and_join_to_weather_feature(self) -> dd.DataFrame:
         try:
             taxi_df = self.taxi_df[['PULocationID', 'bin']]
@@ -87,7 +89,7 @@ class DataTransformation:
             time_index = pd.date_range(y['bin'].min().compute(), y['bin'].max().compute(), freq='60min')
             grid = pd.MultiIndex.from_product([zones, time_index], names=['PULocationID', 'bin']).to_frame(index=False)
 
-            y['PULocationID'] = y['PULocationID'].astype('int32')
+            #y['PULocationID'] = y['PULocationID'].astype('int32')
             grid['PULocationID'] = grid['PULocationID'].astype('int32')
 
             # Align datetime precision
@@ -105,6 +107,7 @@ class DataTransformation:
             )
 
             weather_df = weather_df.drop(columns='day')
+            y.index = y.index.astype('int64')
 
             # Merge target + weather
             df = y.merge(weather_df, on='bin', how='left').map_partitions(
@@ -117,7 +120,7 @@ class DataTransformation:
             logger.error("Failed to generate the target feature", exc_info=True)
             raise RideDemandException(e, sys)
         
-    @profile
+
     def engineer_temporal_feature(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
             # Temporal from 'bin'
@@ -199,11 +202,30 @@ class DataTransformation:
                                                         pdf.apply(_movable_holiday, axis=1))
                 pdf.loc[pdf['Is_special_event'] == 0, 'Is_special_event'] = pdf.loc[pdf['Is_special_event'] == 0].apply(_movable_special, axis=1)
                 
-                #pdf['is_payday'] = pdf['is_pay_day'].where(pdf['is_payday']==0, 
-                 #                                                   pdf.apply(_is_pay_day, axis=1))
                 return pdf
 
-            df = df.map_partitions(add_movable_flags, meta=df._meta)
+            df = df.map_partitions(add_movable_flags) #meta=df._meta)
+
+            ## creating a column for Payday Indicator
+            def is_payday(data):
+
+                date = pd.Timestamp(year=data['pickup_year'], month=data['pickup_month'], day=data['day_of_month'])
+
+                if date.is_month_start or data['day_of_month']==15 or date.is_month_end:
+                    return 1
+
+                return 0
+
+            #pdf = df.compute()
+
+            pdf= df[['PULocationID', 'bin', 'pickup_year', 'pickup_month', 'day_of_month']].compute()
+
+            pdf['is_payday'] = pdf.apply(is_payday, axis=1) ##deriving the payday indicator
+
+            df = df.merge(dd.from_pandas(pdf, npartitions=4), on=['PULocationID', "bin"], how='left')
+            df= df.rename(columns={'pickup_year_x':'pickup_year', 'pickup_month_x':'pickup_month', 
+                       'day_of_month_x':'day_of_month'})
+            df = df.drop(['pickup_year_y', 'pickup_month_y', 'day_of_month_y'], axis=1)
 
             return df
 
@@ -211,33 +233,8 @@ class DataTransformation:
             logger.error("Failed to engineer temporal features", exc_info=True)
             raise RideDemandException(e, sys)
 
-    @profile
-    def engineer_autoregressive_signals(self, df: dd.DataFrame) -> dd.DataFrame:
-        try:
-            ## Define a Pandas function to apply per-partition
-            df = df.sort_values(['PULocationID', 'bin'])
-            g = df.groupby('PULocationID')['pickups']
-            df['pickups_lag_1h'] = g.apply(lambda x: x.shift(1), meta=('pickups_lag_1h', 'f8'))
-            df['pickups_lag_24h'] = g.apply(lambda x: x.shift(24), meta=('pickups_lag_24h', 'f8'))
 
-            df['pickups_roll_mean_24h']=g.apply(lambda x: x.rolling('1D').mean(), meta=('pickups_roll_mean_24h', 'f8'))
-            df['pickups_roll_std_24h']=g.apply(lambda x: x.rolling('1D').mean(), meta=('pickups_roll_std_24h', 'f8'))            
-
-            lag_cols = [
-                'pickups_lag_1h', 'pickups_lag_24h',
-                'pickups_roll_mean_24h', 'pickups_roll_std_24h'
-            ]
-            existing_cols = [c for c in lag_cols if c in df.columns]
-            df[existing_cols] = df[existing_cols].fillna(0)
-
-            return df
-
-        except Exception as e:
-            logger.error("Failed to generate autoregressive features", exc_info=True)
-            raise RideDemandException(e, sys)
-
-    @profile
-    def city_wide_congestion_features(self, df: pd.DataFrame) -> pd.DataFrame:
+    def city_wide_congestion_features(self, df: pd.DataFrame) -> dd.DataFrame:
         try:
             # Select needed columns
             taxi_df = self.taxi_df[['bin', 'tpep_pickup_datetime', 'tpep_dropoff_datetime', 'trip_distance']]
@@ -275,8 +272,8 @@ class DataTransformation:
         except Exception as e:
             logger.error("Unable to generate city-wide features", exc_info=True)
             raise RideDemandException(e, sys)
-        
-    @profile
+
+
     def zone_level_congestion_features(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
             # Select needed columns
@@ -331,8 +328,8 @@ class DataTransformation:
         except Exception as e:
             logger.error("Unable to generate zone-level features", exc_info=True)
             raise RideDemandException(e, sys)
-        
-    @profile
+
+
     def citywide_hourly_demand(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
             # Aggregate citywide pickups per hour
@@ -346,33 +343,16 @@ class DataTransformation:
             # Merge back into main df
             df = df.merge(city_demand, on='bin', how='left')
 
-            # Define a Pandas function to add lags
-            df = df.sort_values('bin')
-            df['city_pickups_lag_1h'] = df['city_pickups'].apply(lambda x: x.shift(1), meta=('city_pickups_lag_1h', 'f8'))
-            #df['city_pickups'].shift(1)
-            df['city_pickups_lag_24h'] = df['city_pickups'].apply(lambda x: x.shift(1), meta=('city_pickups_lag_24h', 'f8'))
-            #df['city_pickups'].shift(24)
-            #df = df.map_partitions(add_city_lags, meta=df._meta)
-
-            lag_cols = [
-                'city_pickups_lag_1h', 'city_pickups_lag_24h'
-                ]
-            
-            existing_cols = [c for c in lag_cols if c in df.columns]
-            df[existing_cols] = df[existing_cols].fillna(0)
-
             return df
 
         except Exception as e:
             logger.error("Unable to engineer citywide hourly demand features", exc_info=True)
             raise RideDemandException(e, sys)
-        
-    @profile
+
+
     def generate_neighbor_features(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
-            start = time.time()
             neighbor_dict = self._get_neighbor_dict()
-            print(f" get_neighbor_dict function took {time.time()- start: .2f} seconds")
 
             # Build neighbor pairs in Pandas, then convert to Dask
             neighbor_pdf = pd.DataFrame(
@@ -399,26 +379,10 @@ class DataTransformation:
                 .rename(columns={'neighbor_pickups': 'neighbor_pickups_sum'})
             )
 
-            neighbor_demand_df['neighbor_pickups_sum'] = neighbor_demand_df['neighbor_pickups_sum'].fillna(-1)
+            neighbor_demand_df['neighbor_pickups_sum'] = neighbor_demand_df['neighbor_pickups_sum']#.fillna(-1)
 
             df = df.merge(neighbor_demand_df, on=['PULocationID', 'bin'], how='left')
-
-            # Add lag features per partition
-            #def add_neighbor_lags(pdf: pd.DataFrame) -> pd.DataFrame:
-            df = df.sort_values(['PULocationID', 'bin'])
-            g = df.groupby('PULocationID')['neighbor_pickups_sum']
-            df['neighbor_pickups_lag_1h'] = g.apply(lambda x: x.shift(1), meta=('neighbor_pickups_lag_1h', 'f8'))
-            df['neighbor_pickups_lag_24h'] = g.apply(lambda x: x.shift(24), meta=('neighbor_pickups_lag_24h', 'f8'))
-            #    return pdf
-
-            #df = df.map_partitions(add_neighbor_lags, meta=df._meta)
-
-            # Fill NaNs in lag/rolling features
-            lag_cols = [
-                'neighbor_pickups_lag_1h', 'neighbor_pickups_lag_24h'
-            ]
-            existing_cols = [c for c in lag_cols if c in df.columns]
-            df[existing_cols] = df[existing_cols].fillna(0)
+            df['neighbor_pickups_sum'] = df['neighbor_pickups_sum'].fillna(0)
 
             return df
 
@@ -426,14 +390,58 @@ class DataTransformation:
             logger.error("Unable to generate neighbor features", exc_info=True)
             raise RideDemandException(e, sys)
         
-    @profile
+    
+    def engineer_autoregressive_signals(self, df: dd.DataFrame) -> dd.DataFrame:
+        try:
+            ## Define a Pandas function to apply per-partition
+            pdf= df[['PULocationID', 'bin', 'pickups', 'city_pickups', 'neighbor_pickups_sum']].compute()
+
+            def make_lags(group, col='pickups'):
+
+                ## for lag features
+                for l in [1,24]:
+                    group[f'{col}_lag_{l}h'] = group[col].shift(l)
+
+                ## for rolling mean and std for zonelevel/bin
+                for w in [24]:
+                    group[f'{col}_roll_mean_{w}h'] = group[col].shift(1).rolling(w).mean()
+                    group[f'{col}_roll_std_{w}h'] = group[col].shift(1).rolling(w).std()
+                return group
+            
+            pdf.reset_index()
+            pdf = pdf.sort_values(['PULocationID','bin'])
+            pdf = pdf.groupby('PULocationID', group_keys=False).apply(make_lags) ##generating the autoregressive feature
+
+
+            # Create lag features for city pickups(1h, 24h)
+            for lag in [1, 24]:
+                pdf[f'city_pickups_lag_{lag}h'] = pdf['city_pickups'].shift(lag)
+
+            ## computing the Lagged neighbor demand
+            for lag in [1, 24]:
+                pdf[f'neighbor_pickups_lag_{lag}h'] = pdf.groupby('PULocationID')['neighbor_pickups_sum'].shift(lag)
+
+            pdf.fillna(0, inplace=True)
+
+            df = df.merge(dd.from_pandas(pdf, npartitions=4), on=['PULocationID', "bin"], how='left')
+            df= df.rename(columns={'pickups_x':'pickups', 'city_pickups_x':'city_pickups', 
+                       'neighbor_pickups_sum_x':'neighbor_pickups_sum'})
+            df = df.drop(['pickups_y', 'city_pickups_y', 'neighbor_pickups_sum_y'], axis=1)
+
+            return df
+
+        except Exception as e:
+            logger.error("Failed to generate autoregressive features", exc_info=True)
+            raise RideDemandException(e, sys)
+
+        
     def save_data_to_feature_store(self, df):
         try:
             #df = self.generate_neighbor_features()
             transformed_data_store = self.config.transformed_data_file_path
             logger.info("Saving the transformed dataset to the feature store")
             os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
-            df.to_parquet(transformed_data_store, index=False)
+            df.to_parquet(transformed_data_store)
             logger.info(f"Transformed data saved to path: {transformed_data_store}")
             print(f"Size of transformed data: {df.shape}")
 
@@ -444,44 +452,29 @@ class DataTransformation:
     def initiate_feature_engineering(self):
         try:
     
-            start= time.time()
             df = self.derive_target_and_join_to_weather_feature()
-            print(f" derive_target_and_join_to_weather function took {time.time()- start: .2f} seconds")
 
             ## Temporal feature
-            start=time.time()
             df = self.engineer_temporal_feature(df)
-            print(f" Engineer_temporal_feature function took {time.time()- start: .2f} seconds")
-
-            ## Autoregressive feature
-            start = time.time()
-            df = self.engineer_autoregressive_signals(df)
-            print(f" Autoregressive function took {time.time()- start: .2f} seconds")
-
+            
             ## Citywide congestion features
-            start = time.time()
             df = self.city_wide_congestion_features(df)
-            print(f"city_wide_congestion function took {time.time()- start: .2f} seconds")
 
             ## zone level congestion features
-            start = time.time()
             df = self.zone_level_congestion_features(df)
-            print(f"Zone level congestion function took {time.time()- start: .2f} seconds")
 
             ## citywide hourly demand
-            start = time.time()
             df = self.citywide_hourly_demand(df)
-            print(f"citywide hourly demand function took {time.time()- start: .2f} seconds")
 
             ## generate neighbor features
-            start = time.time()
             df = self.generate_neighbor_features(df)
-            print(f" generate Neighbor feature function took {time.time()- start: .2f} seconds")
+
+             ## Autoregressive feature
+            df = self.engineer_autoregressive_signals(df)
 
             ## saving the data
-            start = time.time()
             self.save_data_to_feature_store(df)
-            print(f" save data to feature store function took {time.time()- start: .2f} seconds")
         
         except Exception as e:
+            logger.error(f"Unable to complete feature engineering process", e)
             raise RideDemandException(e,sys)

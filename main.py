@@ -8,9 +8,9 @@ if __name__=="__main__":
     STAGE_NAME = 'Data Ingestion Stage'
     
     try:
-        #logger.info(f"{STAGE_NAME} initiated")
-        #feature_pipeline = FeaturePipeline()
-        #feature_pipeline.initiate_data_ingestion()
+        logger.info(f"{STAGE_NAME} initiated")
+        feature_pipeline = FeaturePipeline()
+        feature_pipeline.initiate_data_ingestion()
 
         logger.info(f"{STAGE_NAME} completed")
 

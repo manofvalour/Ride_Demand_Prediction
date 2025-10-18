@@ -51,7 +51,8 @@ class DataIngestion:
       
       taxi_data_url = self.config.taxi_data_url
       taxi_data_date = datetime.strptime(self.start_date, "%Y-%m-%d")
-      taxi_data_end_date = datetime.strptime(self.end_date, "%Y-%m-%d")
+      taxi_end_date = datetime.strptime(self.end_date, "%Y-%m-%d")
+      taxi_data_end_date = taxi_end_date + timedelta(days=1)
       try:
 
         # Send GET request
@@ -77,7 +78,7 @@ class DataIngestion:
 
                     data = pd.read_parquet(full_url)
                     data =data[data['tpep_pickup_datetime']>= taxi_data_date]
-                    data =data[data['tpep_pickup_datetime']<= taxi_data_end_date]
+                    data =data[data['tpep_pickup_datetime']< taxi_data_end_date]
 
                     logger.info(f"data for {date_str} successfully downloaded")
 

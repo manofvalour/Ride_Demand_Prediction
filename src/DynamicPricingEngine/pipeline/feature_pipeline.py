@@ -46,7 +46,7 @@ class FeaturePipeline:
                                                      )
             data_transformation.initiate_feature_engineering()
 
-            logger.info(f"Data Transformation pipeline initiated Successfully")
+            logger.info(f"Data Transformation pipeline completed")
 
         except Exception as e:
             logger.error(f"Failed to initiate data transformation, {e}")
