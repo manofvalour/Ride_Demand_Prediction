@@ -4,24 +4,29 @@ import numpy as np
 from datetime import datetime
 import geopandas as gpd
 import dask.dataframe as dd
+from datetime import datetime, timedelta
+import hopsworks
+from dateutil.relativedelta import relativedelta
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import DataTransformationConfig
-from src.DynamicPricingEngine.utils.common_utils import create_dir, load_shapefile_from_zip
-from src.DynamicPricingEngine.config.configuration import ConfigurationManager
+from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zip
+from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 
 class DataTransformation:
     def __init__(self, config: DataTransformationConfig, 
                  nyc_taxi_data: str, 
-                 nyc_weather_data: str):
+                 nyc_weather_data: str,
+                 save_path:str):
         
         self.config = config
         
         #Read both datasets with Dask
         self.taxi_df = dd.read_parquet(nyc_taxi_data)
-        self.weather_df = dd.read_csv(nyc_weather_data)
+        self.weather_df = dd.read_parquet(nyc_weather_data)
+        self.save_path = save_path
 
         self.taxi_df.index = self.taxi_df.index.astype('int64')
         self.weather_df.index = self.weather_df.index.astype('int64')
@@ -438,16 +443,65 @@ class DataTransformation:
     def save_data_to_feature_store(self, df):
         try:
             #df = self.generate_neighbor_features()
-            transformed_data_store = self.config.transformed_data_file_path
+            #transformed_data_store = self.config.transformed_data_file_path
+
+            data_transform_dir = self.config.root_dir
+
             logger.info("Saving the transformed dataset to the feature store")
-            os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
-            df.to_parquet(transformed_data_store)
-            logger.info(f"Transformed data saved to path: {transformed_data_store}")
+            #os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
+            #df.to_parquet(transformed_data_store)
+
+            save_path = f'{data_transform_dir}/transformed_{self.save_path}'
+            df.to_parquet(save_path)
+
+            logger.info(f"Transformed data saved to path: {save_path}")
             print(f"Size of transformed data: {df.shape}")
 
         except Exception as e:
             logger.error("Unable to save the file", exc_info=True)
             raise RideDemandException(e, sys)
+        
+
+    def push_transformed_data_to_feature_store(self, data:pd.Dataframe)-> None:
+        try:
+            api = os.getenv('HOPSWORKS_API_KEY')
+            now = datetime.today().strftime("%Y-%m-%d")
+            end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
+            end_date = end_date - timedelta(days=end_date.day) ## retrieving the last day of the previous month
+
+            ## accessing the previous month
+            days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
+            end_date = (end_date- timedelta(days=days_to_subtract))
+
+            ## a year back from end date 
+            one_year_ago = end_date - relativedelta(months= 12)
+
+            ##initializing and login to hopswork feature store
+            project = hopsworks.login(project='RideDemandPrediction', api_key_value=api)
+            fs = project.get_feature_store()
+
+            ## creating a new feature group
+            fg = fs.get_or_create_feature_group(
+                name = 'ridedemandprediction',
+                version = 1,
+                primary_key = ['PULocationID', 'bin_str'],
+                event_time = 'bin',
+                description = 'NYC yellow taxi pickup demands per hour per zone',
+                online_enabled = False,
+                partition_key = ['pickup_year','pickup_month']
+            )
+
+            ## inserting new data in the feature group created above
+            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True})
+
+            ## deleting older than a year record from the feature group
+            #fg.commit_delete_record(f"event_time < '{one_year_ago.strftime('%Y-%m-%d')}'")
+            
+            print(f"Data for {end_date} inserted and {one_year_ago} record removed")
+
+        except Exception as e:
+            raise RideDemandException(e,sys)
+
         
     def initiate_feature_engineering(self):
         try:
@@ -472,8 +526,11 @@ class DataTransformation:
              ## Autoregressive feature
             df = self.engineer_autoregressive_signals(df)
 
+            ## pushing data to feature store
+            self.push_transformed_data_to_feature_store(df)
+
             ## saving the data
-            self.save_data_to_feature_store(df)
+            #self.save_data_to_feature_store(df)
         
         except Exception as e:
             logger.error(f"Unable to complete feature engineering process", e)

@@ -27,5 +27,8 @@ plotly
 ensure
 memory_profiler
 dask
+hopsworks
+python-dateutil
+hopsworks[python]
 
 #-e .
