@@ -27,7 +27,7 @@ plotly
 ensure
 memory_profiler
 dask
-hopsworks
+hopsworks==4.2
 python-dateutil
 hopsworks[python]
 

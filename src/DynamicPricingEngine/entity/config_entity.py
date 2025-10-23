@@ -28,7 +28,12 @@ class DataValidationConfig:
 
 @dataclass
 class ModelTrainerConfig:
-    pass
+    root_dir: Path
+    train_data_path: Path
+    val_data_path: Path
+    test_data_path: Path
+    trained_model_path: Path
+    
 
 
 

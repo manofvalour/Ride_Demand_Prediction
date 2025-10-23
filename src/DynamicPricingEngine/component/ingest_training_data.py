@@ -42,7 +42,6 @@ class ExtractTrainingData:
       try:
 
         # Send GET request
-
         while taxi_data_date <= end_date:
           month_end = taxi_data_date + timedelta(days=32)
           taxi_data_month_end = month_end.replace(day=1) - timedelta(days=1)

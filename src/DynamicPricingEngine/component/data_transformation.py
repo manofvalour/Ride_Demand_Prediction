@@ -7,6 +7,9 @@ import dask.dataframe as dd
 from datetime import datetime, timedelta
 import hopsworks
 from dateutil.relativedelta import relativedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -17,16 +20,16 @@ from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class DataTransformation:
     def __init__(self, config: DataTransformationConfig, 
-                 nyc_taxi_data: str, 
-                 nyc_weather_data: str,
-                 save_path:str):
+                 nyc_taxi_data: str=None, 
+                 nyc_weather_data: str=None
+                 ):
         
         self.config = config
         
         #Read both datasets with Dask
-        self.taxi_df = dd.read_parquet(nyc_taxi_data)
-        self.weather_df = dd.read_parquet(nyc_weather_data)
-        self.save_path = save_path
+        self.taxi_df  =dd.read_parquet(nyc_taxi_data)
+        self.weather_df =dd.read_csv(nyc_weather_data)
+        #self.save_path = save_path
 
         self.taxi_df.index = self.taxi_df.index.astype('int64')
         self.weather_df.index = self.weather_df.index.astype('int64')
@@ -40,7 +43,7 @@ class DataTransformation:
         if 'tpep_pickup_datetime' in self.taxi_df.columns:
             self.taxi_df['bin'] = self.taxi_df['tpep_pickup_datetime'].dt.floor('60min')
 
-        # Cache neighbor dictionary
+         #Cache neighbor dictionary
         self._neighbor_dict = None
         self._neighbor_cache_path = os.path.join(self.config.shapefile_dir, "neighbors.pkl")
 
@@ -134,6 +137,7 @@ class DataTransformation:
             df['day_of_month'] = df['bin'].dt.day
             df['Pickup_hour'] = df['bin'].dt.hour
             df['day_of_week'] = df['bin'].dt.dayofweek
+            df["bin_str"] = df["bin"].astype('str')
 
             # Vectorized flags
             df['is_weekend'] = df['day_of_week'].isin([5, 6]).astype('int8')
@@ -440,29 +444,29 @@ class DataTransformation:
             raise RideDemandException(e, sys)
 
         
-    def save_data_to_feature_store(self, df):
-        try:
+    #def save_data_to_feature_store(self, df):
+     #   try:
             #df = self.generate_neighbor_features()
             #transformed_data_store = self.config.transformed_data_file_path
 
-            data_transform_dir = self.config.root_dir
+            #data_transform_dir = self.config.root_dir
 
-            logger.info("Saving the transformed dataset to the feature store")
+            #logger.info("Saving the transformed dataset to the feature store")
             #os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
             #df.to_parquet(transformed_data_store)
 
-            save_path = f'{data_transform_dir}/transformed_{self.save_path}'
-            df.to_parquet(save_path)
+            #save_path = f'{data_transform_dir}/transformed_{self.save_path}'
+            #df.to_parquet(save_path)
 
-            logger.info(f"Transformed data saved to path: {save_path}")
-            print(f"Size of transformed data: {df.shape}")
+            #logger.info(f"Transformed data saved to path: {save_path}")
+            #print(f"Size of transformed data: {df.shape}")
 
-        except Exception as e:
-            logger.error("Unable to save the file", exc_info=True)
-            raise RideDemandException(e, sys)
+      #  except Exception as e:
+       #     logger.error("Unable to save the file", exc_info=True)
+        #    raise RideDemandException(e, sys)
         
 
-    def push_transformed_data_to_feature_store(self, data:pd.Dataframe)-> None:
+    def push_transformed_data_to_feature_store(self, data:pd.DataFrame)-> None:
         try:
             api = os.getenv('HOPSWORKS_API_KEY')
             now = datetime.today().strftime("%Y-%m-%d")
@@ -471,10 +475,10 @@ class DataTransformation:
 
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
-            end_date = (end_date- timedelta(days=days_to_subtract))
+            end_date = (end_date- timedelta(days=days_to_subtract)+ timedelta(days=1))
 
             ## a year back from end date 
-            one_year_ago = end_date - relativedelta(months= 12)
+            start_date = end_date - relativedelta(months= 12)
 
             ##initializing and login to hopswork feature store
             project = hopsworks.login(project='RideDemandPrediction', api_key_value=api)
@@ -492,12 +496,32 @@ class DataTransformation:
             )
 
             ## inserting new data in the feature group created above
-            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True})
+            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
 
-            ## deleting older than a year record from the feature group
-            #fg.commit_delete_record(f"event_time < '{one_year_ago.strftime('%Y-%m-%d')}'")
+            logger.info('data successfully added to hopsworks feature group')
+
+             # Get the feature group
+            fg = fs.get_feature_group(name="ridedemandprediction", version=1)
+            query=fg.select_all()
+
+            # creating a feature view
+            feature_view = fs.create_feature_view(name="ride_demand_fv",
+                                                  version=1,
+                                                  description="Features for ride demand prediction",
+                                                  query=query)
             
-            print(f"Data for {end_date} inserted and {one_year_ago} record removed")
+            logger.info('hopsworks feature view created successfully')
+            
+            feature_view = fs.get_feature_view(name='ride_demand_fv', version= 1)
+
+            # Materialize training dataset using Spark
+            version, jobs = feature_view.create_training_data(start_time = start_date,
+                                                             end_time = end_date,
+                                                             description="365 days ride demand training data",
+                                                             data_format="parquet")
+            
+            logger.info('Training data created successfully and materialized in hopsworks')
+            print(f"Data from {start_date} to {end_date} inserted Successfully")
 
         except Exception as e:
             raise RideDemandException(e,sys)
@@ -527,7 +551,7 @@ class DataTransformation:
             df = self.engineer_autoregressive_signals(df)
 
             ## pushing data to feature store
-            self.push_transformed_data_to_feature_store(df)
+            self.push_transformed_data_to_feature_store(self.df)
 
             ## saving the data
             #self.save_data_to_feature_store(df)

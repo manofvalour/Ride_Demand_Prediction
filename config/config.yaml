@@ -16,5 +16,14 @@ data_transformation:
   shapfile_dir: artifacts/data_transformation/shapefile
   taxi_zone_shapefile_url: https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip
   transformed_data_file_path: artifacts/data_transformation/transformed_data.parquet
+
+
+model_training:
+  root_dir: artifacts/model_training
+  train_data_path: artifacts/model_training/train.csv
+  val_data_path: artifacts/model_training/val.csv
+  test_data_path: artifacts/model_training/test.csv
+  trained_model_path: artifacts/model_training/model.pkl
+  
   
   

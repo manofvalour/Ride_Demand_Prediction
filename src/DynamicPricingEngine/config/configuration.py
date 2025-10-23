@@ -73,3 +73,24 @@ class ConfigurationManager:
         except Exception as e:
             logger.error("Cannot load the data ingestion config", e)
             raise RideDemandException(e,sys)
+
+    def get_model_trainer_config(self)-> ModelTrainerConfig:
+        try:
+            config = self.config.model_training
+
+            ## creating the model training root directory
+            create_dir([config.root_dir])
+            logger.info(f"Model Training root directory created successfully: {config.root_dir}")
+
+            model_training_config = ModelTrainerConfig(
+                root_dir = config.root_dir,
+                train_data_path = config.train_data_path,
+                val_data_path = config.val_data_path,
+                test_data_path = config.test_data_path,
+                trained_model_path=config.trained_model_path
+            )
+
+            return model_training_config
+        except Exception as e:
+            logger.error("Failed to load the Model Trainer Configuration", e)
+            raise RideDemandException(e,sys)
