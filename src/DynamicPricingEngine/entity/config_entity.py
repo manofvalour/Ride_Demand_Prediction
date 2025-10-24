@@ -33,6 +33,7 @@ class ModelTrainerConfig:
     val_data_path: Path
     test_data_path: Path
     trained_model_path: Path
+    split_ratio: float
     
 
 

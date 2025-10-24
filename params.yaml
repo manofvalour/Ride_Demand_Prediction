@@ -1,1 +1,2 @@
-data: key
+ml_params:
+  split_ratio: 0.75

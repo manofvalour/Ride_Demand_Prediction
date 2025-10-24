@@ -5,6 +5,10 @@ import pandas as pd
 import numpy as np
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta, datetime
+from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import StandardScaler, OneHotEncoder
+from sklearn.pipeline import Pipeline
+from sklearn.compose import ColumnTransformer
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -63,7 +67,7 @@ class ModelTrainer:
                                                     description="Features for ride demand prediction",
                                                     query=query)
 
-            #logger.info('hopsworks feature view created successfully')
+            logger.info('hopsworks feature view created successfully')
 
             feature_view = fs.get_feature_view(name='ride_demand_fv', version= 1)
 
@@ -90,7 +94,7 @@ class ModelTrainer:
             df.set_index(['bin'], inplace=True)
 
             # Define train-test split ratio
-            split_ratio = 0.75
+            split_ratio = self.config.split_ratio
 
             # Split per zone
             train_list = []
@@ -108,12 +112,69 @@ class ModelTrainer:
             return train_df, test_df
                
         except Exception as e:
-            logger.error("Error retrieving the dataset")
+            logger.error(f"Error retrieving the dataset, {e}")
             raise RideDemandException(e,sys)
 
 
-    def data_preprocessing(self):
-        pass
+    def data_preprocessing(self, train_df:pd.DataFrame, test_df:pd.DataFrame):
+        
+        try:
+            ## spliting the feature and label
+            X_train = train_df.drop(columns=['pickups'])
+            y_train = train_df['pickups']
+
+            ##test
+            X_test = test_df.drop(columns=['pickups'])
+            y_test = test_df['pickups']
+
+            ## dropping columns
+            columns_to_drop = ['bin_str', 'datetime']
+            X_train.drop(columns=columns_to_drop, inplace = True)
+            X_test.drop(columns=columns_to_drop, inplace = True)
+
+            logger.info(f"Columns are successfully dropped: {columns_to_drop}")
+
+            ## splitting numerical and categorical
+            num_cols = X_train.dtypes[X_train.dtypes != 'object'].index
+            cat_cols =  X_train.dtypes[X_train.dtypes == 'object'].index
+
+            ## Setting up the preprocessing pipeline
+            numeric_transformer = Pipeline(steps=[
+            ('imputer', SimpleImputer(strategy='median'))
+            ])
+
+            categorical_transformer = Pipeline(steps=[
+                ('imputer', SimpleImputer(strategy='most_frequent')),
+                ('onehot', OneHotEncoder(handle_unknown='ignore'))
+            ])
+
+            preprocess = ColumnTransformer(
+                transformers=[
+                    ('num', numeric_transformer, num_cols),
+                    ('cat', categorical_transformer, cat_cols)
+                ]
+            )
+
+            ##Applying the preprocessing
+            data_pipeline = Pipeline(steps=[
+                ('preprocess', preprocess),
+                ('scaler', StandardScaler())
+            ])
+
+            X_train_transformed = data_pipeline.fit_transform(X_train)
+            X_test_transformed = data_pipeline.transform(X_test)
+
+            logger.info("train and test data preprocessed")
+
+            ## saving the dataset as an numpy array using np.C_
+            train_arr = np.c_[X_train_transformed, y_train]
+            test_arr = np.c_[X_test_transformed, y_test]
+
+            return train_arr, test_arr 
+
+        except Exception as e:
+            logger.error(f"Error preprocessing data, {e}")
+            raise RideDemandException(e,sys)
 
     def model_training_and_evaluation(self):
         pass

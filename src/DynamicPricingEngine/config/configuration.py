@@ -77,6 +77,7 @@ class ConfigurationManager:
     def get_model_trainer_config(self)-> ModelTrainerConfig:
         try:
             config = self.config.model_training
+            params = self.params.ml_params
 
             ## creating the model training root directory
             create_dir([config.root_dir])
@@ -87,7 +88,8 @@ class ConfigurationManager:
                 train_data_path = config.train_data_path,
                 val_data_path = config.val_data_path,
                 test_data_path = config.test_data_path,
-                trained_model_path=config.trained_model_path
+                trained_model_path=config.trained_model_path,
+                split_ratio = params.split_ratio
             )
 
             return model_training_config
