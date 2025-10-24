@@ -469,17 +469,7 @@ class DataTransformation:
     def push_transformed_data_to_feature_store(self, data:pd.DataFrame)-> None:
         try:
             api = os.getenv('HOPSWORKS_API_KEY')
-            now = datetime.today().strftime("%Y-%m-%d")
-            end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
-            end_date = end_date - timedelta(days=end_date.day) ## retrieving the last day of the previous month
-
-            ## accessing the previous month
-            days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
-            end_date = (end_date- timedelta(days=days_to_subtract)+ timedelta(days=1))
-
-            ## a year back from end date 
-            start_date = end_date - relativedelta(months= 12)
-
+            
             ##initializing and login to hopswork feature store
             project = hopsworks.login(project='RideDemandPrediction', api_key_value=api)
             fs = project.get_feature_store()
@@ -499,29 +489,6 @@ class DataTransformation:
             fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
 
             logger.info('data successfully added to hopsworks feature group')
-
-             # Get the feature group
-            fg = fs.get_feature_group(name="ridedemandprediction", version=1)
-            query=fg.select_all()
-
-            # creating a feature view
-            feature_view = fs.create_feature_view(name="ride_demand_fv",
-                                                  version=1,
-                                                  description="Features for ride demand prediction",
-                                                  query=query)
-            
-            logger.info('hopsworks feature view created successfully')
-            
-            feature_view = fs.get_feature_view(name='ride_demand_fv', version= 1)
-
-            # Materialize training dataset using Spark
-            version, jobs = feature_view.create_training_data(start_time = start_date,
-                                                             end_time = end_date,
-                                                             description="365 days ride demand training data",
-                                                             data_format="parquet")
-            
-            logger.info('Training data created successfully and materialized in hopsworks')
-            print(f"Data from {start_date} to {end_date} inserted Successfully")
 
         except Exception as e:
             raise RideDemandException(e,sys)
