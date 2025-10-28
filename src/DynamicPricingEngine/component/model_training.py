@@ -90,27 +90,29 @@ class ModelTrainer:
             logger.info('Data successfully retrieved from the feature store')
 
             ## splitting the dataset into train and test split
-            df.sort_values(by=['pulocationid', 'bin'], inplace =True)
+            df.sort_values(by=['pulocationid', 'bin'], inplace =True).reset_index(drop=True)
             df.set_index(['bin'], inplace=True)
-
-            # Define train-test split ratio
-            split_ratio = self.config.split_ratio
 
             # Split per zone
             train_list = []
+            val_list = []
             test_list = []
 
             for zone_id, group in df.groupby('pulocationid'):
-                split_point = int(len(group) * split_ratio)
-                train_list.append(group.iloc[:split_point])
-                test_list.append(group.iloc[split_point:])
+                train_end = int(len(group) * 0.7)
+                val_end   = int(len(group) * 0.85)
+
+                train_list.append(group.iloc[:train_end])
+                val_list.append(group.iloc[train_end:val_end])
+                test_list.append(group.iloc[val_end:])
 
             # Concatenate all zones
             train_df = pd.concat(train_list)
+            val_df = pd.concat(val_list)
             test_df = pd.concat(test_list)
 
-            return train_df, test_df
-               
+            return train_df, val_df, test_df
+                        
         except Exception as e:
             logger.error(f"Error retrieving the dataset, {e}")
             raise RideDemandException(e,sys)
@@ -176,7 +178,7 @@ class ModelTrainer:
             logger.error(f"Error preprocessing data, {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self):
+    def model_training_and_evaluation(self, train_arr, test_arr):
         pass
 
     def save_model_in_model_store(self):
