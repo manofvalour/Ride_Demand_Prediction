@@ -30,5 +30,6 @@ dask
 hopsworks==4.2
 python-dateutil
 hopsworks[python]
+optuna
 
 #-e .

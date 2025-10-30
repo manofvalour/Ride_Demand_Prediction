@@ -14,12 +14,13 @@ class TrainingPipeline:
             logger.info('Extracting the Training Data...')
             config = ConfigurationManager()
             model_trainer_config = config.get_model_trainer_config
-            logger.info('Data Ingestion Configuration successfully loaded')
+            logger.info('Model Training Configuration successfully loaded')
 
             model_trainer = ModelTrainer(model_trainer_config)
-            data = model_trainer.retrieve_engineered_feature()
+            train_df, val_df, test_df = model_trainer.retrieve_engineered_feature()
+            model = model_trainer.model_training_and_evaluation(train_df, val_df, test_df)
 
-            logger.info('successfully Loaded the data')
+            logger.info('Model Trained Successfully')
 
         except Exception as e:
             raise RideDemandException(e,sys)

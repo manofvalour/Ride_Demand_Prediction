@@ -33,7 +33,11 @@ class ModelTrainerConfig:
     val_data_path: Path
     test_data_path: Path
     trained_model_path: Path
-    split_ratio: float
+    train_split_ratio: float
+    target_col: str
+    val_split_ratio: float
+    optuna_param_spaces: dict
+    models: dict
     
 
 

@@ -9,6 +9,15 @@ from sklearn.impute import SimpleImputer
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 from sklearn.pipeline import Pipeline
 from sklearn.compose import ColumnTransformer
+from lightgbm import LGBMRegressor
+from xgboost import XGBRegressor
+from catboost import CatBoostRegressor
+import dagshub
+
+import optuna
+import mlflow
+from pathlib import Path
+import lightgbm as lgbm
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -20,15 +29,25 @@ from hsfs.feature_view import FeatureView
 from dotenv import load_dotenv
 load_dotenv()
 
+dagshub.init(repo_owner='manofvalour',
+             repo_name='Dynamic-Pricing-Engine',
+             mlflow=True)
+
+mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
+mlflow.set_experiment(experiment_name="Ride Demand Prediction")
+
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         try:
             self.config= config
+            self.cat_cols = ['pulocationid', 'pickup_hour', 'day_of_week', 'season_of_year',
+                        'is_weekend', 'is_rush_hour', 'is_night_hour', 'is_holiday', 
+                        'is_special_event', 'is_payday']
+     
 
         except Exception as e:
             raise RideDemandException(e,sys)
         
-
     def retrieve_engineered_feature(self):
         try:
             ## login to feature store
@@ -99,8 +118,8 @@ class ModelTrainer:
             test_list = []
 
             for zone_id, group in df.groupby('pulocationid'):
-                train_end = int(len(group) * 0.7)
-                val_end   = int(len(group) * 0.85)
+                train_end = int(len(group) * self.config.train_split_ratio)
+                val_end   = int(len(group) * self.config.val_split_ratio)
 
                 train_list.append(group.iloc[:train_end])
                 val_list.append(group.iloc[train_end:val_end])
@@ -118,70 +137,60 @@ class ModelTrainer:
             raise RideDemandException(e,sys)
 
 
-    def data_preprocessing(self, train_df:pd.DataFrame, test_df:pd.DataFrame):
-        
+    def prepare_features(df:pd.DataFrame, target:str):
         try:
-            ## spliting the feature and label
-            X_train = train_df.drop(columns=['pickups'])
-            y_train = train_df['pickups']
+            X = df.drop(columns=[target, "bin_str", 'datetime'], errors='ignore')
+            y = df[target]
 
-            ##test
-            X_test = test_df.drop(columns=['pickups'])
-            y_test = test_df['pickups']
+            for col in self.cat_cols:
+                if col in X.columns:
+                    X[col] = X[col].astype('category')
 
-            ## dropping columns
-            columns_to_drop = ['bin_str', 'datetime']
-            X_train.drop(columns=columns_to_drop, inplace = True)
-            X_test.drop(columns=columns_to_drop, inplace = True)
-
-            logger.info(f"Columns are successfully dropped: {columns_to_drop}")
-
-            ## splitting numerical and categorical
-            num_cols = X_train.dtypes[X_train.dtypes != 'object'].index
-            cat_cols =  X_train.dtypes[X_train.dtypes == 'object'].index
-
-            ## Setting up the preprocessing pipeline
-            numeric_transformer = Pipeline(steps=[
-            ('imputer', SimpleImputer(strategy='median'))
-            ])
-
-            categorical_transformer = Pipeline(steps=[
-                ('imputer', SimpleImputer(strategy='most_frequent')),
-                ('onehot', OneHotEncoder(handle_unknown='ignore'))
-            ])
-
-            preprocess = ColumnTransformer(
-                transformers=[
-                    ('num', numeric_transformer, num_cols),
-                    ('cat', categorical_transformer, cat_cols)
-                ]
-            )
-
-            ##Applying the preprocessing
-            data_pipeline = Pipeline(steps=[
-                ('preprocess', preprocess),
-                ('scaler', StandardScaler())
-            ])
-
-            X_train_transformed = data_pipeline.fit_transform(X_train)
-            X_test_transformed = data_pipeline.transform(X_test)
-
-            logger.info("train and test data preprocessed")
-
-            ## saving the dataset as an numpy array using np.C_
-            train_arr = np.c_[X_train_transformed, y_train]
-            test_arr = np.c_[X_test_transformed, y_test]
-
-            return train_arr, test_arr 
-
+            return X, y
+        
         except Exception as e:
-            logger.error(f"Error preprocessing data, {e}")
+            logger.error(f"feature preparation failed, {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self, train_arr, test_arr):
-        pass
+    def model_training_and_evaluation(self, train_df:pd.DataFrame, 
+                                    val_df:pd.DataFrame, 
+                                    test_df:pd.DataFrame):
+        try:
+            target = self.config.target_col
+            models = self.config.models ## models for training data
+
+            # Your data
+            X_train, y_train = self.prepare_features(train_df, target)
+            X_val, y_val = self.prepare_features(val_df, target)
+            X_test, y_test = self.prepare_features(test_df, target)
+           
+
+            # Model Training and Hyperparameter Tuning
+            model_report, trained_models: dict = evaluate_model(df=val_df, test_df=test_df,
+                                                        val_df= val_df, x_train=X_train, y_train=y_train,
+                                            x_test=X_val, y_test=y_val,
+                                            models=models,param_spaces=OPTUNA_PARAM_SPACES,
+                                            n_trials=1,epoch=5)
+
+            ## selecting and saving the best model
+            result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
+            best_model_name =result_df.index[0] ## selecting the top model (model with the smallest 'RMSE')
+            best_model = trained_models[best_model_name]
+
+            # Pretty print
+            logger.info("\nFINAL RESULTS")
+            for name, metrics in model_report.items():
+                logger.info(f"{name:8} → MAE: {metrics['mae']:.3f} | RMSE: {metrics['rmse']:.3f} | R²: {metrics['R2_score']:.3f}")
+
+            return best_model
+
+        except Exception as e:
+            logger.error(f"Model training and evaluation failed, {e}")
+            raise RideDemandError(e,sys)
+
 
     def save_model_in_model_store(self):
+        """ saving model to the artifact store """
         pass
 
     def initiate_model_training(self):

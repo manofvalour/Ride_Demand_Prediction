@@ -23,8 +23,8 @@ if __name__=="__main__":
     
     try:
         logger.info(f"{STAGE_NAME} initiated")
-        feature_pipeline = TrainingPipeline()
-        feature_pipeline.initiate_model_training()
+        training_pipeline = TrainingPipeline()
+        training_pipeline.initiate_model_training()
 
         logger.info(f"{STAGE_NAME} completed")
 

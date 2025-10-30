@@ -89,7 +89,11 @@ class ConfigurationManager:
                 val_data_path = config.val_data_path,
                 test_data_path = config.test_data_path,
                 trained_model_path=config.trained_model_path,
-                split_ratio = params.split_ratio
+                target_cols = params.target_col,
+                train_split_ratio = params.train_split_ratio,
+                val_split_ratio = params.val_split_ratio,
+                param_spaces = self.params.optuna_param_spaces,
+                models = self.params.models
             )
 
             return model_training_config
