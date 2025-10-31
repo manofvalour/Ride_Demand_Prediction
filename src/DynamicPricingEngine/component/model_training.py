@@ -167,6 +167,12 @@ class ModelTrainer:
                     #"catboost": CatBoostRegressor,
                     }
 
+                        # Your data
+            #train:str, val:str, test:str):
+            #train_df = pd.read_parquet(train)
+            #val_df = pd.read_parquet(val)
+            #test_df = pd.read_parquet(test)
+
             X_train, y_train = self.prepare_features(train_df, target)
             X_val, y_val = self.prepare_features(val_df, target)
             X_test, y_test = self.prepare_features(test_df, target)
