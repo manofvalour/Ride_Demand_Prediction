@@ -13,7 +13,7 @@ class TrainingPipeline:
         try:
             logger.info('Extracting the Training Data...')
             config = ConfigurationManager()
-            model_trainer_config = config.get_model_trainer_config
+            model_trainer_config = config.get_model_trainer_config()
             logger.info('Model Training Configuration successfully loaded')
 
             model_trainer = ModelTrainer(model_trainer_config)

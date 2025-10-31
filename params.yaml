@@ -1,17 +1,12 @@
 ml_params:
   train_split_ratio: 0.7
   val_split_ratio: 0.85
-  target_col: 'pickups'
-
-models: {"lgbm": LGBMRegressor,
-         #'xgboost": XGBRegressor,
-         #"catboost": CatBoostRegressor,
-        }
+  target_col: pickups
 
 optuna_param_spaces: { 
   
   "lgbm": {
-        "learning_rate": {"type": "float", "low": 1e-3, "high": 0.3, "log": True},
+        "learning_rate": {'type': 'float', 'low': 0.001, 'high': 0.3, 'log': True},
         "num_leaves": {"type": "int", "low": 31, "high": 512},
         "max_depth": {"type": "int", "low": -1, "high": 20},
         "min_child_samples": {"type": "int", "low": 5, "high": 100},
@@ -22,28 +17,28 @@ optuna_param_spaces: {
         "min_split_gain": {"type": "float","low": 0.0,"high": 0.3},
     },
 
-    "xgboost": {
-        "learning_rate": {"type": "float", "low": 1e-3, "high": 0.3, "log": True},
-        "max_depth": {"type": "int","low": 3, "high": 15},
-        "min_child_weight": {"type": "float","low": 1, "high": 10},
-        "subsample": {"type": "float", "low": 0.6, "high": 1.0},
-        "colsample_bytree": {"type": "float","low": 0.6, "high": 1.0},
-        "colsample_bylevel": {"type": "float","low": 0.6,"high": 1.0},
-        "reg_alpha": {"type": "float","low": 1e-8,"high": 10.0,"log": True},
-        "reg_lambda": {"type": "float", "low": 1e-8, "high": 10.0, "log": True},
-        "gamma": {"type": "float","low": 1e-8, "high": 0.5, "log": True},
-    },
+ #   "xgboost": {
+  #      "learning_rate": {"type": "float", "low": 1e-3, "high": 0.3, "log": True},
+   #     "max_depth": {"type": "int","low": 3, "high": 15},
+    #    "min_child_weight": {"type": "float","low": 1, "high": 10},
+     #   "subsample": {"type": "float", "low": 0.6, "high": 1.0},
+      #  "colsample_bytree": {"type": "float","low": 0.6, "high": 1.0},
+       # "colsample_bylevel": {"type": "float","low": 0.6,"high": 1.0},
+     #   "reg_alpha": {"type": "float","low": 1e-8,"high": 10.0,"log": True},
+   #     "reg_lambda": {"type": "float", "low": 1e-8, "high": 10.0, "log": True},
+  #      "gamma": {"type": "float","low": 1e-8, "high": 0.5, "log": True},
+ #   },
 
-    "catboost": {
-        "learning_rate": {"type": "float","low": 1e-3, "high": 0.3,"log": True},
-        "depth": {"type": "int","low": 4,"high": 12},
-        "l2_leaf_reg": {"type": "float","low": 1.0, "high": 10.0},
-        "bagging_temperature": {"type": "float","low": 0.0,"high": 1.0},
-        "random_strength": {"type": "float", "low": 0.0,"high": 10.0},
-        "border_count": {"type": "int", "low": 32, "high": 255},
-       "min_data_in_leaf": {"type": "int","low": 1,"high": 50},
-       "grow_policy": {"type": "categorical", "choices": ["SymmetricTree", "Depthwise", "Lossguide"]},
+  #  "catboost": {
+   #     "learning_rate": {"type": "float","low": 1e-3, "high": 0.3,"log": True},
+    #    "depth": {"type": "int","low": 4,"high": 12},
+     #   "l2_leaf_reg": {"type": "float","low": 1.0, "high": 10.0},
+      #  "bagging_temperature": {"type": "float","low": 0.0,"high": 1.0},
+       # "random_strength": {"type": "float", "low": 0.0,"high": 10.0},
+      #  "border_count": {"type": "int", "low": 32, "high": 255},
+     #  "min_data_in_leaf": {"type": "int","low": 1,"high": 50},
+    #   "grow_policy": {"type": "categorical", "choices": ["SymmetricTree", "Depthwise", "Lossguide"]},
 
-    }
+   # }
 
   }

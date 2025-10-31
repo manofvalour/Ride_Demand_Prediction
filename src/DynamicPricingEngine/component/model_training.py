@@ -23,18 +23,19 @@ from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.config.configuration import ModelTrainerConfig
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
+from src.DynamicPricingEngine.utils.ml_utils import evaluate_model
 import hopsworks
 from hsfs.feature_view import FeatureView
 
 from dotenv import load_dotenv
 load_dotenv()
 
-dagshub.init(repo_owner='manofvalour',
-             repo_name='Dynamic-Pricing-Engine',
-             mlflow=True)
+#dagshub.init(repo_owner='manofvalour',
+ #            repo_name='Dynamic-Pricing-Engine',
+  #           mlflow=True)
 
-mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
-mlflow.set_experiment(experiment_name="Ride Demand Prediction")
+#mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
+#mlflow.set_experiment(experiment_name="Ride Demand Prediction")
 
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
@@ -137,7 +138,7 @@ class ModelTrainer:
             raise RideDemandException(e,sys)
 
 
-    def prepare_features(df:pd.DataFrame, target:str):
+    def prepare_features(self, df:pd.DataFrame, target:str):
         try:
             X = df.drop(columns=[target, "bin_str", 'datetime'], errors='ignore')
             y = df[target]
@@ -152,25 +153,29 @@ class ModelTrainer:
             logger.error(f"feature preparation failed, {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self, train_df:pd.DataFrame, 
+    def model_training_and_evaluation(self, 
+    
+                                    train_df:pd.DataFrame, 
                                     val_df:pd.DataFrame, 
                                     test_df:pd.DataFrame):
         try:
             target = self.config.target_col
-            models = self.config.models ## models for training data
 
-            # Your data
+            ## models for training data
+            models = {"lgbm": LGBMRegressor,
+                    #"xgboost": XGBRegressor,
+                    #"catboost": CatBoostRegressor,
+                    }
+
             X_train, y_train = self.prepare_features(train_df, target)
             X_val, y_val = self.prepare_features(val_df, target)
             X_test, y_test = self.prepare_features(test_df, target)
            
-
             # Model Training and Hyperparameter Tuning
-            model_report, trained_models: dict = evaluate_model(df=val_df, test_df=test_df,
-                                                        val_df= val_df, x_train=X_train, y_train=y_train,
-                                            x_test=X_val, y_test=y_val,
-                                            models=models,param_spaces=OPTUNA_PARAM_SPACES,
-                                            n_trials=1,epoch=5)
+            model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
+                                            x_test=X_val, y_test=y_val, models=models,
+                                            param_spaces=self.config.optuna_param_spaces,
+                                            n_trials=5)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
@@ -186,7 +191,7 @@ class ModelTrainer:
 
         except Exception as e:
             logger.error(f"Model training and evaluation failed, {e}")
-            raise RideDemandError(e,sys)
+            raise RideDemandException(e,sys)
 
 
     def save_model_in_model_store(self):

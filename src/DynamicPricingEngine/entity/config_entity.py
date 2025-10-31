@@ -37,7 +37,6 @@ class ModelTrainerConfig:
     target_col: str
     val_split_ratio: float
     optuna_param_spaces: dict
-    models: dict
     
 
 
