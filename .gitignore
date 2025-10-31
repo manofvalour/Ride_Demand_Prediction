@@ -5,3 +5,4 @@ logs/
 notebook/
 logs/
 .env
+mlruns/

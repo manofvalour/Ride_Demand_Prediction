@@ -107,7 +107,7 @@ def create_dir(dir_path:List, verbose:bool=True):
 
 
 @ensure_annotations
-def save_pickle(file:object, save_path:str)-> None:
+def save_pickle(file:object, save_path)-> None:
     """
     function to save pickle file to a directory
 

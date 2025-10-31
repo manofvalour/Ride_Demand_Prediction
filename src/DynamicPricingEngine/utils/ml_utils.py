@@ -49,23 +49,6 @@ class _ModelTrial:
                 # verbose=False,
                 )
 
-            elif self.name == "random_forest":
-                # One-hot encode categoricals
-
-                cat_cols_present = [col for col in self.cat_cols if col in X_train.columns]
-                X_train_encoded = pd.get_dummies(X_train, columns=cat_cols_present, drop_first=True)
-                #X_val = pd.get_dummies(X_val, columns=cat_cols_present, drop_first=True)
-
-                #X_train_enc, X_val_enc = X_train_enc.align(X_val_enc, join='left', axis=1, fill_value=0)
-
-                model = self.model_cls(**params)
-                model.fit(
-                    X_train_encoded, y_train,
-                    #eval_set=[(X_val_encoded, y_val)],
-                    #early_stopping_rounds=50,
-                    #verbose=False,
-                )
-
             elif self.name == 'catboost':
                 cat_idx = [X_train.columns.get_loc(c) for c in self.cat_cols if c in X_train.columns]
                 model = self.model_cls(**params, task_type="CPU") #'GPU'if torch.cuda.is_available() else 'CPU')

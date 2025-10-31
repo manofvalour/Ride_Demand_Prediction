@@ -18,7 +18,8 @@ class TrainingPipeline:
 
             model_trainer = ModelTrainer(model_trainer_config)
             train_df, val_df, test_df = model_trainer.retrieve_engineered_feature()
-            model = model_trainer.model_training_and_evaluation(train_df, val_df, test_df)
+            model, model_metric = model_trainer.model_training_and_evaluation(train_df, val_df, test_df)
+            model_trainer.save_model_to_model_store(model, model_metric)
 
             logger.info('Model Trained Successfully')
 

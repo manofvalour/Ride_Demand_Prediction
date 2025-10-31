@@ -13,6 +13,7 @@ from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 import dagshub
+import dill
 
 import optuna
 import mlflow
@@ -24,6 +25,7 @@ from src.DynamicPricingEngine.exception.customexception import RideDemandExcepti
 from src.DynamicPricingEngine.config.configuration import ModelTrainerConfig
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 from src.DynamicPricingEngine.utils.ml_utils import evaluate_model
+from src.DynamicPricingEngine.utils.common_utils import save_pickle
 import hopsworks
 from hsfs.feature_view import FeatureView
 
@@ -40,11 +42,13 @@ load_dotenv()
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         try:
+
+            api_key = os.getenv('HOPSWORKS_API_KEY')
+            self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=api_key)
             self.config= config
             self.cat_cols = ['pulocationid', 'pickup_hour', 'day_of_week', 'season_of_year',
                         'is_weekend', 'is_rush_hour', 'is_night_hour', 'is_holiday', 
                         'is_special_event', 'is_payday']
-     
 
         except Exception as e:
             raise RideDemandException(e,sys)
@@ -52,7 +56,6 @@ class ModelTrainer:
     def retrieve_engineered_feature(self):
         try:
             ## login to feature store
-            api_key = os.getenv('HOPSWORKS_API_KEY')
             
             now = datetime.today().strftime("%Y-%m-%d")
             end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
@@ -67,8 +70,8 @@ class ModelTrainer:
 
 
             ## login to feature store
-            project = hopsworks.login(project='RideDemandPrediction', api_key_value=api_key)
-            fs = project.get_feature_store()
+            
+            fs = self.project.get_feature_store()
 
             # Get the feature group
             fg = fs.get_feature_group(name="ridedemandprediction", version=1)
@@ -153,9 +156,7 @@ class ModelTrainer:
             logger.error(f"feature preparation failed, {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self, 
-    
-                                    train_df:pd.DataFrame, 
+    def model_training_and_evaluation(self, train_df:pd.DataFrame, 
                                     val_df:pd.DataFrame, 
                                     test_df:pd.DataFrame):
         try:
@@ -163,16 +164,11 @@ class ModelTrainer:
 
             ## models for training data
             models = {"lgbm": LGBMRegressor,
-                    #"xgboost": XGBRegressor,
-                    #"catboost": CatBoostRegressor,
+                    "xgboost": XGBRegressor,
+                    "catboost": CatBoostRegressor,
                     }
 
-                        # Your data
-            #train:str, val:str, test:str):
-            #train_df = pd.read_parquet(train)
-            #val_df = pd.read_parquet(val)
-            #test_df = pd.read_parquet(test)
-
+            #Your data
             X_train, y_train = self.prepare_features(train_df, target)
             X_val, y_val = self.prepare_features(val_df, target)
             X_test, y_test = self.prepare_features(test_df, target)
@@ -181,28 +177,52 @@ class ModelTrainer:
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
                                             param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=5)
+                                            n_trials=1)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
-            best_model_name =result_df.index[0] ## selecting the top model (model with the smallest 'RMSE')
+            best_model_name =result_df.index[0] ## selecting the top model (model with the lowest 'RMSE')
             best_model = trained_models[best_model_name]
 
             # Pretty print
             logger.info("\nFINAL RESULTS")
             for name, metrics in model_report.items():
                 logger.info(f"{name:8} → MAE: {metrics['mae']:.3f} | RMSE: {metrics['rmse']:.3f} | R²: {metrics['R2_score']:.3f}")
+                best_model_metrics = model_report[best_model_name]
 
-            return best_model
+            logger.info(f"{best_model_name} is the model with the best metrics")
+            return best_model, best_model_metrics
 
         except Exception as e:
             logger.error(f"Model training and evaluation failed, {e}")
             raise RideDemandException(e,sys)
 
-
-    def save_model_in_model_store(self):
+    def save_model_to_model_store(self, model, model_metrics):
         """ saving model to the artifact store """
-        pass
+        try:
+            # saving model 
+            model_dir = self.config.trained_model_path ## model path
+            os.makedirs(os.path.dirname(model_dir), exist_ok=True)
+
+            with open(model_dir, 'wb') as file_path:
+                dill.dump(model,file_path)     
+
+            ## saving the model to hopsworks model store
+            logger.info('Saving the model to hopsworks model registry')
+            model_registry = self.project.get_model_registry()
+
+            model_hopsworks = model_registry.sklearn.create_model(
+                name="ride_demand_prediction_model",
+                metrics= model_metrics,
+                description="Model to predict ride demand based on historical data and features."
+            )
+            model_hopsworks.save(model_dir)
+
+            logger.info(f"Trained model saved at {model_dir}")
+
+        except Exception as e:
+            logger.error(f'Failed to save the Bestm model to the model artifact store')
+            raise RideDemandException(e,sys)
 
     def initiate_model_training(self):
         pass
