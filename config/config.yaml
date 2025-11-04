@@ -24,6 +24,12 @@ model_training:
   val_data_path: artifacts/model_training/val.csv
   test_data_path: artifacts/model_training/test.csv
   trained_model_path: artifacts/model_training/model/model.pkl
+
+inference:
+  root_dir: artifacts/inference
+  input_data_path: artifacts/inference/input_data.csv
+  model_path: artifacts/inference/model.pkl
+  predictions_output_path: artifacts/inference/predictions.csv
   
   
   

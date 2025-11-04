@@ -31,5 +31,8 @@ hopsworks==4.2
 python-dateutil
 hopsworks[python]
 optuna
+pydantic
+meteostat
+
 
 #-e .

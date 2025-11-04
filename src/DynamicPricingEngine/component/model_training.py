@@ -32,12 +32,12 @@ from hsfs.feature_view import FeatureView
 from dotenv import load_dotenv
 load_dotenv()
 
-#dagshub.init(repo_owner='manofvalour',
- #            repo_name='Dynamic-Pricing-Engine',
-  #           mlflow=True)
+dagshub.init(repo_owner='manofvalour',
+             repo_name='Dynamic-Pricing-Engine',
+             mlflow=True)
 
-#mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
-#mlflow.set_experiment(experiment_name="Ride Demand Prediction")
+mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
+mlflow.set_experiment(experiment_name="Ride Demand Prediction")
 
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):

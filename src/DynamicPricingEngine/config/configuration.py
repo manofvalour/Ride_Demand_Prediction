@@ -4,7 +4,8 @@ from src.DynamicPricingEngine.exception.customexception import RideDemandExcepti
 from src.DynamicPricingEngine.entity.config_entity import (DataIngestionConfig,
                                                            DataTransformationConfig,
                                                            ModelTrainerConfig,
-                                                           DataValidationConfig)
+                                                           DataValidationConfig,
+                                                           InferenceConfig)
 from src.DynamicPricingEngine.constants import *
 
 from pathlib import Path
@@ -98,4 +99,26 @@ class ConfigurationManager:
             return model_training_config
         except Exception as e:
             logger.error("Failed to load the Model Trainer Configuration", e)
+            raise RideDemandException(e,sys)
+        
+    def get_inference_config(self) -> InferenceConfig:
+        config = self.config.inference
+        data_ingestion_config= self.config.data_ingestion
+
+        try:
+            ## creating the inference root directory
+            create_dir([config.root_dir])
+
+            inference_config = InferenceConfig(
+                root_dir = config.root_dir,
+                input_data_path = config.input_data_path,
+                model_path = config.model_path,
+                predictions_output_path = config.predictions_output_path,
+                weather_data_url= data_ingestion_config.weather_data_url
+            )
+
+            return inference_config
+
+        except Exception as e:
+            logger.error("Cannot load the inference config", e)
             raise RideDemandException(e,sys)

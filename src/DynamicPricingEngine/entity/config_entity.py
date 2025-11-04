@@ -37,6 +37,20 @@ class ModelTrainerConfig:
     target_col: str
     val_split_ratio: float
     optuna_param_spaces: dict
+
+################################# INFERENCE CONFIGURATION ####################################
+@dataclass
+class InferenceConfig:
+    root_dir: Path
+    input_data_path: Path
+    model_path: Path
+    predictions_output_path: Path
+    weather_data_url: str    
+
+
+
+
+
     
 
 

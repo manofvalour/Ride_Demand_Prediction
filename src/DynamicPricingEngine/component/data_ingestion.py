@@ -20,7 +20,7 @@ from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 load_dotenv()
 
 class DataIngestion:
-    def __init__(self, config: DataIngestionConfig):
+    def __init__(self, config: DataIngestionConfig, ):
         try:
             
             ## two months into the past
