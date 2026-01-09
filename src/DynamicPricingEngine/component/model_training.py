@@ -15,11 +15,8 @@ from catboost import CatBoostRegressor
 import dagshub
 import dill
 from sklearn.feature_selection import mutual_info_regression
-
-import optuna
 import mlflow
 from pathlib import Path
-import lightgbm as lgbm
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -274,6 +271,10 @@ class ModelTrainer:
             raise RideDemandException(e,sys)
 
     def initiate_model_training(self):
-        pass
+        try:
+            pass
+
+        except:
+            pass
 
     

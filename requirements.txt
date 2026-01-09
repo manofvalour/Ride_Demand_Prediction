@@ -33,6 +33,7 @@ hopsworks[python]
 optuna
 pydantic
 meteostat
+catboost
 
 
 #-e .
