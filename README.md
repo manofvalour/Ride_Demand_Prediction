@@ -23,3 +23,13 @@
 | `Driver Ratings`               | Rating given to driver (1–5 scale)                                          |
 | `Customer Rating`              | Rating given by customer (1–5 scale)                                        |
 | `Payment Method`               | Method used for payment (UPI, Cash, Credit Card, Uber Wallet, Debit Card)  |
+
+
+
+
+Group,Features to Keep
+External/Weather,"temp, precip, windspeed, visibility"
+Calendar/Time,"day_of_month, pickup_hour, day_of_week, is_weekend, is_holiday"
+Special Events,"is_special_event, is_payday"
+Traffic,"city_congestion_index, zone_congestion_index"
+History (Lags),"pickups_lag_1h, pickups_lag_24h, city_pickups_lag_1h, city_pickups_lag_24h, neighbor_pickups_lag_1h"

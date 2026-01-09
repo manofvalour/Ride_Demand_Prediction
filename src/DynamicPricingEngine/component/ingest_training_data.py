@@ -19,6 +19,9 @@ from src.DynamicPricingEngine.entity.config_entity import DataIngestionConfig
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class ExtractTrainingData:
+    """
+    Extract the whole training Data needed for the model 
+    """
     def __init__(self,config: DataIngestionConfig,
                  start_date:str, end_date:str):
       

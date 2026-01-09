@@ -2,35 +2,31 @@ import sys, os
 from pathlib import Path
 from typing import List
 import pandas as pd
-import numpy as np
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import requests
 import re
-import io
-import time
 from dotenv import load_dotenv
+import gc
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
-from src.DynamicPricingEngine.utils.common_utils import create_dir, read_yaml
 from src.DynamicPricingEngine.entity.config_entity import DataIngestionConfig
-from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
+from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract, dtype_downcast
 
 load_dotenv()
 
 class DataIngestion:
-    def __init__(self, config: DataIngestionConfig, ):
+    def __init__(self, config: DataIngestionConfig):
         try:
-            
             ## two months into the past
             now = datetime.now().strftime("%Y-%m-%d")
             end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
-            end_date = end_date - timedelta(days=end_date.day) ## retrieving the last day of the previos month
+            end_date = end_date - timedelta(days=end_date.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
-            end_date = (end_date- timedelta(days=days_to_subtract))
+            end_date = (end_date - timedelta(days=days_to_subtract))
 
             ## start of the month
             days= time_subtract(end_date.strftime('%Y-%m-%d'))
@@ -56,7 +52,7 @@ class DataIngestion:
       try:
 
         # Send GET request
-        response = requests.get(taxi_data_url)
+        response = requests.get(taxi_data_url) ## retrieve the content of the url
         soup = BeautifulSoup(response.content, "html.parser")
 
         # Regex pattern to match Yellow Taxi files with date
@@ -74,12 +70,12 @@ class DataIngestion:
                     full_url = href if href.startswith("http") else f"https://www.nyc.gov{href}"
                     print(f"Downloading data {date_str} from {full_url}")
                     #cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID","DOLocationID","passenger_count",
-                           # "trip_distance","fare_amount", "tip_amount", "total_amount"] columns=cols
+                     #        "trip_distance","fare_amount", "tip_amount", "total_amount"]
 
-                    data = pd.read_parquet(full_url)
-                    data =data[data['tpep_pickup_datetime']>= taxi_data_date]
-                    data =data[data['tpep_pickup_datetime']< taxi_data_end_date]
-
+                    data = pd.read_parquet(full_url)#, columns=cols)
+                    data = data[(taxi_data_date <= data['tpep_pickup_datetime']) & (data['tpep_pickup_datetime'] < taxi_data_end_date)]
+                    data = dtype_downcast(data)
+                 
                     logger.info(f"data for {date_str} successfully downloaded")
 
 
@@ -130,14 +126,13 @@ class DataIngestion:
             fields = ['datetime', 'temp', 'dew', 'humidity', 'precip',
                       'snow', 'windspeed', 'feelslike', 'snowdepth', 'visibility']
 
-
             for day in days:
                 for hour in day.get("hours", []):
                     filtered_hour = {key: hour.get(key) for key in fields}
                     filtered_hour["day"] = day.get("datetime")
                     hourly_records.append(filtered_hour)
 
-            df_hours = pd.DataFrame(hourly_records)
+            df_hours = (pd.DataFrame(hourly_records)).pipe(dtype_downcast)
             logger.info(f"Retrieved {len(days)} days ({df_hours.shape[0]} hourly records).")
 
             return df_hours
@@ -161,5 +156,5 @@ class DataIngestion:
             logger.info('Successfully saved the datasets to artifacts paths: {taxi_file_path},{weather_file_path}')
        
         except Exception as e:
+            logger.error(f"Unable to save the datasets to artifact: {e}")
             raise RideDemandException(e,sys)
-    

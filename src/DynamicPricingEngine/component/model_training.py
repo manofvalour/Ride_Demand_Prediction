@@ -14,6 +14,7 @@ from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 import dagshub
 import dill
+from sklearn.feature_selection import mutual_info_regression
 
 import optuna
 import mlflow
@@ -46,9 +47,7 @@ class ModelTrainer:
             api_key = os.getenv('HOPSWORKS_API_KEY')
             self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=api_key)
             self.config= config
-            self.cat_cols = ['pulocationid', 'pickup_hour', 'day_of_week', 'season_of_year',
-                        'is_weekend', 'is_rush_hour', 'is_night_hour', 'is_holiday', 
-                        'is_special_event', 'is_payday']
+            self.cat_cols = ['pickup_hour','is_rush_hour']
 
         except Exception as e:
             raise RideDemandException(e,sys)
@@ -70,7 +69,6 @@ class ModelTrainer:
 
 
             ## login to feature store
-            
             fs = self.project.get_feature_store()
 
             # Get the feature group
@@ -111,19 +109,66 @@ class ModelTrainer:
                                                 read_options={"use_hive":False})
             
             logger.info('Data successfully retrieved from the feature store')
-
-            ## splitting the dataset into train and test split
-            df.sort_values(by=['pulocationid', 'bin'], inplace =True).reset_index(drop=True)
+            
             df.set_index(['bin'], inplace=True)
 
+            return df
+        
+        except Exception as e:
+            logger.error(f"Error retrieving the dataset, {e}")
+            raise RideDemandException(e,sys)
+        
+    def feature_selection(self, df):
+        try:
+            # 1. Your manually verified final feature list
+            # Based on your previous analysis, these are the high-signal features
+            final_features = [
+                'temp',
+                'humidity',
+                'pickup_hour',
+                'is_rush_hour',
+                'city_avg_speed',
+                'zone_avg_speed',
+                'zone_congestion_index',
+                'pickups_lag_1h',
+                'pulocationid',
+                'pickups_lag_24h',
+                'city_pickups_lag_1h',
+                'neighbor_pickups_lag_1h'
+            ]
+
+            # 2. Adding the target variable to the list for the final dataframe
+            target_column = 'pickups'
+
+            # 3. Check if all columns exist in the dataframe to avoid KeyErrors
+            available_cols = [col for col in final_features + [target_column] if col in df.columns]
+
+            # 4. Create the final dataframe
+            df_final = df[available_cols].copy()
+
+            # Log what happened for debugging
+            missing_cols = set(final_features + [target_column]) - set(available_cols)
+            if missing_cols:
+                logger.warning(f"Missing columns from selection: {missing_cols}")
+
+            logger.info(f"Final feature set prepared with {len(available_cols) - 1} features.")
+
+            return df_final
+
+        except Exception as e:
+            raise RideDemandException(e, sys)
+        
+    def split_data(self, df):
+        try:
             # Split per zone
             train_list = []
             val_list = []
             test_list = []
 
-            for zone_id, group in df.groupby('pulocationid'):
-                train_end = int(len(group) * self.config.train_split_ratio)
-                val_end   = int(len(group) * self.config.val_split_ratio)
+            for zone_id, group in df.groupby('pulocationid')['day']:
+                n =len(group)
+                train_end = int(n * self.config.train_split_ratio)
+                val_end   = int(n * self.config.val_split_ratio)
 
                 train_list.append(group.iloc[:train_end])
                 val_list.append(group.iloc[train_end:val_end])
@@ -134,16 +179,20 @@ class ModelTrainer:
             val_df = pd.concat(val_list)
             test_df = pd.concat(test_list)
 
+            logger.info(f"Data split successfully!")
+            logger.info(f"Train split: {train_df.shape}")
+            logger.info(f"Val Split: {val_df.shape}")
+            logger.info(f"Test split: {test_df.shape}")
+
             return train_df, val_df, test_df
-                        
+        
         except Exception as e:
-            logger.error(f"Error retrieving the dataset, {e}")
-            raise RideDemandException(e,sys)
+            logger.error(f"Unable to split the dataset")
+            raise RideDemandException(e, sys)
 
-
-    def prepare_features(self, df:pd.DataFrame, target:str):
+    def _prepare_features(self, df:pd.DataFrame, target:str):
         try:
-            X = df.drop(columns=[target, "bin_str", 'datetime'], errors='ignore')
+            X = df.drop(columns=[target, 'pulocationid'], errors='ignore')
             y = df[target]
 
             for col in self.cat_cols:
@@ -169,9 +218,9 @@ class ModelTrainer:
                     }
 
             #Your data
-            X_train, y_train = self.prepare_features(train_df, target)
-            X_val, y_val = self.prepare_features(val_df, target)
-            X_test, y_test = self.prepare_features(test_df, target)
+            X_train, y_train = self._prepare_features(train_df, target)
+            X_val, y_val = self._prepare_features(val_df, target)
+            X_test, y_test = self._prepare_features(test_df, target)
            
             # Model Training and Hyperparameter Tuning
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
@@ -214,14 +263,14 @@ class ModelTrainer:
             model_hopsworks = model_registry.sklearn.create_model(
                 name="ride_demand_prediction_model",
                 metrics= model_metrics,
-                description="Model to predict ride demand based on historical data and features."
+                description="Model to predict ride demand based on historical features."
             )
             model_hopsworks.save(model_dir)
 
-            logger.info(f"Trained model saved at {model_dir}")
+            logger.info(f"Trained model saved to {model_dir}")
 
         except Exception as e:
-            logger.error(f'Failed to save the Bestm model to the model artifact store')
+            logger.error(f'Failed to save the Best model to the model artifact store')
             raise RideDemandException(e,sys)
 
     def initiate_model_training(self):
