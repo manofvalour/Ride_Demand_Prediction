@@ -7,3 +7,4 @@ logs/
 .env
 mlruns/
 data.csv/
+catboost_info/
