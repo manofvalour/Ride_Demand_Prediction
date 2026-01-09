@@ -148,9 +148,7 @@ def evaluate_model(x_train: pd.DataFrame, y_train: pd.Series | np.ndarray, x_tes
     try:
         report: Dict[str, Dict[str, float]] = {}
         trained_models = {}
-        cat_cols = ['pulocationid', 'pickup_hour', 'day_of_week', 'season_of_year',
-                         'is_weekend', 'is_rush_hour', 'is_night_hour', 'is_holiday',
-                         'is_special_event', 'is_payday']
+        cat_cols = ['pickup_hour', 'is_rush_hour']
 
         for name, model_cls in models.items():
             print(f"\nTUNING {name.upper()}")

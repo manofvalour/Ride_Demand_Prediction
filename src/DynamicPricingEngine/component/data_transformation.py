@@ -429,7 +429,6 @@ class DataTransformation:
             logger.error("Unable to generate neighbor features", exc_info=True)
             raise RideDemandException(e, sys)
         
-    
     def engineer_autoregressive_signals(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
             ## Define a Pandas function to apply per-partition
@@ -480,26 +479,23 @@ class DataTransformation:
             raise RideDemandException(e, sys)
 
         
-    #def save_data_to_feature_store(self, df):
-     #   try:
-            #df = self.generate_neighbor_features()
-            #transformed_data_store = self.config.transformed_data_file_path
+    def save_data_to_feature_store(self, df):
+        try:
 
-            #data_transform_dir = self.config.root_dir
+            transformed_data_store = self.config.transformed_data_file_path
 
-            #logger.info("Saving the transformed dataset to the feature store")
-            #os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
-            #df.to_parquet(transformed_data_store)
+            data_transform_dir = self.config.root_dir
 
-            #save_path = f'{data_transform_dir}/transformed_{self.save_path}'
-            #df.to_parquet(save_path)
+            logger.info("Saving the transformed dataset to the feature store")
+            os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
+            df.to_parquet(transformed_data_store)
 
-            #logger.info(f"Transformed data saved to path: {save_path}")
-            #print(f"Size of transformed data: {df.shape}")
+            logger.info(f"Transformed data saved to path: {transformed_data_store}")
+            print(f"Size of transformed data: {len(df)}, {df.shape[1]}")
 
-      #  except Exception as e:
-       #     logger.error("Unable to save the file", exc_info=True)
-        #    raise RideDemandException(e, sys)
+        except Exception as e:
+            logger.error("Unable to save the file", exc_info=True)
+            raise RideDemandException(e, sys)
         
 
     def push_transformed_data_to_feature_store(self, data:pd.DataFrame)-> None:
@@ -520,6 +516,9 @@ class DataTransformation:
                 online_enabled = False,
                 partition_key = ['pickup_year','pickup_month']
             )
+
+            ## converting dask dataframe to pandas
+            data = data.compute()
 
             ## inserting new data in the feature group created above
             fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
@@ -553,12 +552,12 @@ class DataTransformation:
              ## Autoregressive feature
             df = self.engineer_autoregressive_signals(df)
 
+            ## saving the data
+            self.save_data_to_feature_store(df)
+        
             ## pushing data to feature store
             self.push_transformed_data_to_feature_store(self.df)
 
-            ## saving the data
-            #self.save_data_to_feature_store(df)
-        
         except Exception as e:
             logger.error(f"Unable to complete feature engineering process", e)
             raise RideDemandException(e,sys)

@@ -74,7 +74,7 @@ class DataIngestion:
 
                     data = pd.read_parquet(full_url)#, columns=cols)
                     data = data[(taxi_data_date <= data['tpep_pickup_datetime']) & (data['tpep_pickup_datetime'] < taxi_data_end_date)]
-                    data = dtype_downcast(data)
+                    #data = dtype_downcast(data)
                  
                     logger.info(f"data for {date_str} successfully downloaded")
 
@@ -132,7 +132,7 @@ class DataIngestion:
                     filtered_hour["day"] = day.get("datetime")
                     hourly_records.append(filtered_hour)
 
-            df_hours = (pd.DataFrame(hourly_records)).pipe(dtype_downcast)
+            df_hours = (pd.DataFrame(hourly_records))#.pipe(dtype_downcast)
             logger.info(f"Retrieved {len(days)} days ({df_hours.shape[0]} hourly records).")
 
             return df_hours

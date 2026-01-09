@@ -1,4 +1,4 @@
-import os, sys
+import sys
 
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
@@ -20,7 +20,6 @@ class FeaturePipeline:
             training_data.extract_nyc_yellow_taxi_data()
             training_data.extract_nyc_weather_data()
             
-
         except Exception as e:
             logger.error(f"Failed to initiate training data, {e}")
             raise RideDemandException(e,sys)

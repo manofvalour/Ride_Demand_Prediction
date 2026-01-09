@@ -6,3 +6,4 @@ notebook/
 logs/
 .env
 mlruns/
+data.csv/
