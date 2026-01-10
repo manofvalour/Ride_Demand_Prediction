@@ -36,7 +36,7 @@ class ConfigurationManager:
 
         try:
             ##creating the data ingestion root directory
-            create_dir([config.root_dir, config.taxi_data_dir, config.weather_data_dir])
+            create_dir([config.root_dir])
 
             data_ingestion_config = DataIngestionConfig(
                 root_dir=config.root_dir,
@@ -44,8 +44,6 @@ class ConfigurationManager:
                 weather_data_url=config.weather_data_url,
                 taxi_data_local_file_path=config.taxi_data_local_file_path,
                 weather_data_local_file_path=config.weather_data_local_file_path,
-                taxi_data_dir=config.taxi_data_dir,
-                weather_data_dir= config.weather_data_dir
             )
 
             return data_ingestion_config

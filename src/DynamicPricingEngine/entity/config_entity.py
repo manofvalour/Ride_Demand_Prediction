@@ -10,8 +10,6 @@ class DataIngestionConfig:
     weather_data_url: Path
     taxi_data_local_file_path: Path
     weather_data_local_file_path: Path
-    taxi_data_dir: Path
-    weather_data_dir: Path
 
 @dataclass
 class DataTransformationConfig:

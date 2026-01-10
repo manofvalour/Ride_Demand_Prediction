@@ -16,17 +16,19 @@ from src.DynamicPricingEngine.entity.config_entity import DataTransformationConf
 from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zip
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
-
 class DataTransformation:
     def __init__(self, config: DataTransformationConfig, 
-                 nyc_taxi_data: str, 
-                 nyc_weather_data: str
+                 nyc_taxi_data: str,#pd.DataFrame, 
+                 nyc_weather_data: str#pd.DataFrame
                  ):
         
         self.config = config
         
         #Read both datasets with Dask
-        self.taxi_df  =dd.read_parquet(nyc_taxi_data)
+        #self.taxi_df = dd.from_pandas(nyc_taxi_data, npartitions=4)
+        #self.weather_df = dd.from_pandas(nyc_weather_data, npartitions=4)
+
+        self.taxi_df  =dd.read_parquet(nyc_taxi_data)#, engine='pyarrow')
         self.weather_df =dd.read_csv(nyc_weather_data)
 
         self.taxi_df.index = self.taxi_df.index.astype('int32')
@@ -121,7 +123,7 @@ class DataTransformation:
             
             #Dropping the Day column
             weather_df = weather_df.drop(columns='day')
-            y.index = y.index.astype('int32')
+            y.index = y.index.astype('int64')
 
             # Merge target + weather and sort by PUlocationID and bin
             df = y.merge(weather_df, on='bin', how='left').map_partitions(
@@ -174,13 +176,13 @@ class DataTransformation:
             df['is_holiday'] = df[['pickup_month', 'day_of_month']].map_partitions(
                 lambda pdf: pdf.apply(lambda r: int((r['pickup_month'], 
                                                      r['day_of_month']) in fixed_holidays), axis=1),
-                meta=('is_holiday', 'int8')
+                meta=('is_holiday', 'int32')
             )
 
             df['Is_special_event'] = df[['pickup_month', 'day_of_month']].map_partitions(
                 lambda pdf: pdf.apply(lambda r: int((r['pickup_month'], 
                                                      r['day_of_month']) in fixed_specials), axis=1),
-                meta=('Is_special_event', 'int8')
+                meta=('Is_special_event', 'int32')
             )
 
             # Movable holidays and specials (row-wise logic via map_partitions)
@@ -418,9 +420,11 @@ class DataTransformation:
                 .rename(columns={'neighbor_pickups': 'neighbor_pickups_sum'})
             )
 
-            neighbor_demand_df['neighbor_pickups_sum'] = neighbor_demand_df['neighbor_pickups_sum']#.fillna(-1)
+           # neighbor_demand_df['neighbor_pickups_sum'] = neighbor_demand_df['neighbor_pickups_sum'].fillna(-1)
 
             df = df.merge(neighbor_demand_df, on=['PULocationID', 'bin'], how='left')
+            df = df.rename(columns={'neighbor_pickups_sum_y':'neighbor_pickups_sum'})
+
             df['neighbor_pickups_sum'] = df['neighbor_pickups_sum'].fillna(0)
 
             return df
@@ -480,35 +484,47 @@ class DataTransformation:
             raise RideDemandException(e, sys)
 
         
-    #def save_data_to_feature_store(self, df):
-     #   try:
-            #df = self.generate_neighbor_features()
-            #transformed_data_store = self.config.transformed_data_file_path
+    def save_data_to_feature_store(self, df):
+        try:
+            df = self.generate_neighbor_features(df)
+            transformed_data_store = self.config.transformed_data_file_path
 
-            #data_transform_dir = self.config.root_dir
+            logger.info("Saving the transformed dataset to the feature store")
+            os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
+            df.to_parquet(transformed_data_store)
 
-            #logger.info("Saving the transformed dataset to the feature store")
-            #os.makedirs(os.path.dirname(transformed_data_store), exist_ok=True)
-            #df.to_parquet(transformed_data_store)
+            logger.info(f"Transformed data saved to path: {transformed_data_store}")
+            print(f"Size of transformed data: {df.shape}")
 
-            #save_path = f'{data_transform_dir}/transformed_{self.save_path}'
-            #df.to_parquet(save_path)
-
-            #logger.info(f"Transformed data saved to path: {save_path}")
-            #print(f"Size of transformed data: {df.shape}")
-
-      #  except Exception as e:
-       #     logger.error("Unable to save the file", exc_info=True)
-        #    raise RideDemandException(e, sys)
+        except Exception as e:
+            logger.error("Unable to save the file", exc_info=True)
+            raise RideDemandException(e, sys)
         
 
-    def push_transformed_data_to_feature_store(self, data:pd.DataFrame)-> None:
+    def push_transformed_data_to_feature_store(self, data)-> None:
         try:
             api = os.getenv('HOPSWORKS_API_KEY')
             
             ##initializing and login to hopswork feature store
             project = hopsworks.login(project='RideDemandPrediction', api_key_value=api)
             fs = project.get_feature_store()
+
+            ##converting dask dataframe to pandas dataframe
+            data = data.compute()
+
+            # 1. Define the desired data types
+            type_mapping = {
+                'pickups': 'int64',
+                'city_pickups': 'int64',
+                'neighbor_pickups_sum': 'int64',
+                'is_holiday': 'int32',
+                'Is_special_event': 'int32'
+            }
+
+            # 2. Apply the casting safely
+            for col, dtype in type_mapping.items():
+                if col in data.columns:
+                    data[col] = data[col].astype(dtype)
 
             ## creating a new feature group
             fg = fs.get_or_create_feature_group(
@@ -553,11 +569,11 @@ class DataTransformation:
              ## Autoregressive feature
             df = self.engineer_autoregressive_signals(df)
 
-            ## pushing data to feature store
-            self.push_transformed_data_to_feature_store(self.df)
-
             ## saving the data
-            #self.save_data_to_feature_store(df)
+            self.save_data_to_feature_store(df)
+
+            ## pushing data to feature store
+            self.push_transformed_data_to_feature_store(df)
         
         except Exception as e:
             logger.error(f"Unable to complete feature engineering process", e)
