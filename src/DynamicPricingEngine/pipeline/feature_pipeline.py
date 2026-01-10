@@ -1,4 +1,4 @@
-import os, sys
+import sys
 
 from src.DynamicPricingEngine.component.data_ingestion import DataIngestion
 from src.DynamicPricingEngine.component.data_transformation import DataTransformation

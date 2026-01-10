@@ -431,7 +431,6 @@ class DataTransformation:
             logger.error("Unable to generate neighbor features", exc_info=True)
             raise RideDemandException(e, sys)
         
-    
     def engineer_autoregressive_signals(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
             ## Define a Pandas function to apply per-partition
@@ -534,6 +533,9 @@ class DataTransformation:
                 online_enabled = False,
                 partition_key = ['pickup_year','pickup_month']
             )
+
+            ## converting dask dataframe to pandas
+            data = data.compute()
 
             ## inserting new data in the feature group created above
             fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})

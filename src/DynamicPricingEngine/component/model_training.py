@@ -119,6 +119,7 @@ class ModelTrainer:
         try:
             # 1. Your manually verified final feature list
             # Based on your previous analysis, these are the high-signal features
+            df.set_index(['bin'], inplace=True)
             final_features = [
                 'temp',
                 'humidity',
@@ -162,7 +163,7 @@ class ModelTrainer:
             val_list = []
             test_list = []
 
-            for zone_id, group in df.groupby('pulocationid')['day']:
+            for zone_id, group in df.groupby('pulocationid'):
                 n =len(group)
                 train_end = int(n * self.config.train_split_ratio)
                 val_end   = int(n * self.config.val_split_ratio)
