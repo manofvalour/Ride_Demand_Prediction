@@ -18,19 +18,17 @@ from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class DataTransformation:
     def __init__(self, config: DataTransformationConfig, 
-                 nyc_taxi_data: str,#pd.DataFrame, 
-                 nyc_weather_data: str#pd.DataFrame
+                 nyc_taxi_data: pd.DataFrame, 
+                 nyc_weather_data: pd.DataFrame
                  ):
         
         self.config = config
         
         #Read both datasets with Dask
-        #self.taxi_df = dd.from_pandas(nyc_taxi_data, npartitions=4)
-        #self.weather_df = dd.from_pandas(nyc_weather_data, npartitions=4)
+        self.taxi_df = dd.from_pandas(nyc_taxi_data, npartitions=4)
+        self.weather_df = dd.from_pandas(nyc_weather_data, npartitions=4)
 
-        self.taxi_df  =dd.read_parquet(nyc_taxi_data)#, engine='pyarrow')
-        self.weather_df =dd.read_csv(nyc_weather_data)
-
+        #Ensure correct dtypes for memory optimization
         self.taxi_df.index = self.taxi_df.index.astype('int32')
         self.weather_df.index = self.weather_df.index.astype('int32')
 

@@ -20,19 +20,17 @@ class FeaturePipeline:
             data_ingestion_config = config.get_data_ingestion_config()
             logger.info('Data Ingestion configuration successfully loaded')
 
-            #data_ingestion = DataIngestion(config = data_ingestion_config)
-            #nyc_taxi_data = data_ingestion.get_NYC_yellow_taxi_data()
-            #nyc_weather_data = data_ingestion.extract_nyc_weather_data()
-            #data_ingestion.save_data_to_artifact(nyc_taxi_data, nyc_weather_data)
-            #logger.info('Data Ingestion pipeline initiated successfully')
+            data_ingestion = DataIngestion(config = data_ingestion_config)
+            nyc_taxi_data = data_ingestion.get_NYC_yellow_taxi_data()
+            nyc_weather_data = data_ingestion.extract_nyc_weather_data()
+            data_ingestion.save_data_to_artifact(nyc_taxi_data, nyc_weather_data)
+            logger.info('Data Ingestion pipeline initiated successfully')
 
             logger.info('initiating data transformation')
 
             data_transformation_config = config.get_data_transformation_config()
             logger.info('Data Transformation configuration loaded successfully')
-            nyc_taxi_data = '/workspaces/Dynamic-Pricing-Engine/artifacts/data_ingestion/taxi_data.parquet'
-            nyc_weather_data = '/workspaces/Dynamic-Pricing-Engine/artifacts/data_ingestion/weather_data.csv'
-        
+            
             data_transformation = DataTransformation(data_transformation_config,
                                                      nyc_taxi_data,
                                                      nyc_weather_data)
