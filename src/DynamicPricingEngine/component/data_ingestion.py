@@ -72,15 +72,18 @@ class DataIngestion:
                 if file_date == taxi_data_date:
                     full_url = href if href.startswith("http") else f"https://www.nyc.gov{href}"
                     print(f"Downloading data {date_str} from {full_url}")
-                    #cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID","DOLocationID","passenger_count",
-                     #        "trip_distance","fare_amount", "tip_amount", "total_amount"]
-
-                    data = pd.read_parquet(full_url)#, columns=cols)
+                    
+                    cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID",
+                            "DOLocationID","trip_distance"]
+                    
+                    #cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID","DOLocationID"] 
+                    
+                    data = pd.read_parquet(full_url, columns=cols)
+                    #data = dd.read_parquet(full_url).compute()
                     data = data[(taxi_data_date <= data['tpep_pickup_datetime']) & (data['tpep_pickup_datetime'] < taxi_data_end_date)]
                     #data = dtype_downcast(data)
                  
                     logger.info(f"data for {date_str} successfully downloaded")
-
 
         if data is None:
           logger.info(f"No data found for the {date_str}.")
@@ -112,21 +115,21 @@ class DataIngestion:
             logger.info(f"Fetching data from {start_of_month_str} to {end_of_month_str}...")
 
             try:
-                response = requests.get(url, params=params)
+                response = requests.get(url, params=params, timeout=30) # Always set a timeout
                 response.raise_for_status()
 
             except requests.exceptions.HTTPError as http_err:
-                logger.error(f"HTTP error occurred: {http_err} | Status: {response.status_code} | Response: {response.text[:200]}")
-                return None
-            except requests.exceptions.ConnectionError as conn_err:
-                logger.error(f"Connection error occurred: {conn_err}")
-                return None
-            except requests.exceptions.Timeout as timeout_err:
-                logger.error(f"Timeout error occurred: {timeout_err}")
-                return None
+                logger.error(f"CRITICAL: HTTP error. Status: {response.status_code} | Response: {response.text[:200]}")
+                # Raising the error stops the pipeline immediately
+                raise RideDemandException(f"API failed with status {response.status_code}", sys)
+
+            except (requests.exceptions.ConnectionError, requests.exceptions.Timeout) as network_err:
+                logger.error(f"CRITICAL: Network/Timeout error: {network_err}")
+                raise RideDemandException("Weather API is unreachable. Check internet or API status.", sys)
+
             except requests.RequestException as e:
-                logger.error(f"An unexpected request error occurred: {e}")
-                return None
+                logger.error(f"CRITICAL: Unexpected API error: {e}")
+                raise RideDemandException(e, sys)
 
             data = response.json()
             days = data.get("days", [])
