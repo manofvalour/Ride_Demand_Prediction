@@ -34,6 +34,7 @@ optuna
 pydantic
 meteostat
 catboost
-
+optuna-integration[lightgbm]
+optuna-integration
 
 #-e .

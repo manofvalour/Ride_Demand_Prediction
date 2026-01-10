@@ -39,6 +39,14 @@ optuna_param_spaces: {
        "min_data_in_leaf": {"type": "int","low": 1,"high": 50},
        "grow_policy": {"type": "categorical", "choices": ["SymmetricTree", "Depthwise", "Lossguide"]},
 
-    }
+    },
+
+  "random_forest": {
+        "n_estimators": {"type": "int", "low": 100, "high": 1000},
+        "max_depth": {"type": "int", "low": 5, "high": 50},
+        "min_samples_split": {"type": "int", "low": 2, "high": 20},
+        "min_samples_leaf": {"type": "int", "low": 1, "high": 20},
+        "max_features": {"type": "categorical", "choices": ["sqrt", "log2"]},
+    },
 
   }

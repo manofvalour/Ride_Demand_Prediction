@@ -8,3 +8,4 @@ logs/
 mlruns/
 data.csv/
 catboost_info/
+catboost_info/

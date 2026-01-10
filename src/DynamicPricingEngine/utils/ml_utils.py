@@ -11,16 +11,13 @@ import mlflow
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
 
-
 class _ModelTrial:
     """Wraps one model + Optuna search space."""
     def __init__(self, name: str, model_cls, param_space: Dict[str, Any]):
         self.name = name
         self.model_cls = model_cls
         self.param_space = param_space
-        self.cat_cols = ['pulocationid', 'pickup_hour', 'day_of_week', 'season_of_year',
-                         'is_weekend', 'is_rush_hour', 'is_night_hour', 'is_holiday',
-                         'is_special_event', 'is_payday']
+        self.cat_cols = ['pulocationid', 'pickup_hour', 'is_rush_hour']
 
     def _objective(self, trial, X_train, y_train, X_val, y_val):
 
@@ -44,9 +41,9 @@ class _ModelTrial:
                 model = self.model_cls(**params)
                 model.fit(
                     X_train, y_train,
-                    #eval_set=[(X_val, y_val)],
-                # callbacks=[optuna.integration.LightGBMPruningCallback(trial, "rmse")],
-                # verbose=False,
+                    eval_set=[(X_val, y_val)],
+                 #callbacks=[optuna.integration.LightGBMPruningCallback(trial, "rmse")],
+               #  verbose=False,
                 )
 
             elif self.name == 'catboost':
@@ -59,7 +56,7 @@ class _ModelTrial:
             elif self.name == 'xgboost':
                 model = self.model_cls(enable_categorical=True, **params)#, early_stopping_rounds=10)
                 model.fit(X_train, y_train,
-                            #eval_set=[(X_val, y_val)],
+                            eval_set=[(X_val, y_val)],
                             verbose=False)
 
             else:
@@ -73,12 +70,10 @@ class _ModelTrial:
             logger.error(f"failed to load parameters and train model")
             raise RideDemandException(e,sys)
 
-
     def tune(self, X_train, y_train, X_val, y_val, n_trials: int = 30):
         """ Optuna Tuning"""
 
         try:
-
             study = optuna.create_study(
                 direction="minimize",
                 sampler=optuna.samplers.TPESampler(seed=42),
@@ -97,18 +92,16 @@ class _ModelTrial:
             logger.error(f"Hyperparameter Tuning Failed, {e}")
             raise RideDemandException(e,sys)
 
-
-
  ## For tracking experiments
 def log_model(name, model, params, X_val, y_val):
     try:
         with mlflow.start_run():
 
             if y_val is not None:
-                if name == 'Temporal Fusion Transformer':
-                    y_pred = model.predict(X_val).numpy().flatten()
-                else:
-                    y_pred = model.predict(X_val)
+                #if name == 'Temporal Fusion Transformer':
+                #    y_pred = model.predict(X_val).numpy().flatten()
+                #else:
+                y_pred = model.predict(X_val)
 
                 rmse = np.sqrt(mean_squared_error(y_val, y_pred))
                 mae = mean_absolute_error(y_val, y_pred)

@@ -12,6 +12,7 @@ from sklearn.compose import ColumnTransformer
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
+from sklearn.ensemble import RandomForestRegressor
 import dagshub
 import dill
 from sklearn.feature_selection import mutual_info_regression
@@ -213,6 +214,7 @@ class ModelTrainer:
             ## models for training data
             models = {"lgbm": LGBMRegressor,
                     "xgboost": XGBRegressor,
+                    "random_forest": RandomForestRegressor,
                     "catboost": CatBoostRegressor,
                     }
 
@@ -224,7 +226,7 @@ class ModelTrainer:
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
                                             param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=5)
+                                            n_trials=10)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
