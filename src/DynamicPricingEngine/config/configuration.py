@@ -54,6 +54,7 @@ class ConfigurationManager:
         
     def get_data_transformation_config(self)-> DataTransformationConfig:
         config = self.config.data_transformation
+        ingestconfig = self.config.data_ingestion
 
         try:
             ## creating the data transformation root directory
@@ -64,7 +65,9 @@ class ConfigurationManager:
                 shapefile_dir = config.shapfile_dir,
                 feature_store_url_path= config.feature_store_url_path,
                 taxi_zone_shapefile_url= config.taxi_zone_shapefile_url,
-                transformed_data_file_path= config.transformed_data_file_path
+                transformed_data_file_path= config.transformed_data_file_path,
+                taxi_data_local_file_path = ingestconfig.taxi_data_local_file_path,
+                weather_data_local_file_path = ingestconfig.weather_data_local_file_path
             )
 
             return data_transformation_config

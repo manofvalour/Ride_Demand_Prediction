@@ -1,3 +1,4 @@
+from calendar import month
 import sys, os
 from pathlib import Path
 from typing import List
@@ -8,6 +9,7 @@ import requests
 import re
 from dotenv import load_dotenv
 import gc
+from dateutil.relativedelta import relativedelta
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -20,9 +22,9 @@ class DataIngestion:
     def __init__(self, config: DataIngestionConfig):
         try:
             ## two months into the past
-            now = datetime.now().strftime("%Y-%m-%d")
-            end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
-            end_date = end_date - timedelta(days=end_date.day) ## retrieving the last day of the previous month
+            now = (datetime.today()- relativedelta(months=1))
+           # end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
+            end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
@@ -35,6 +37,7 @@ class DataIngestion:
             self.config = config
             self.start_date = start_date.strftime('%Y-%m-%d')
             self.end_date = end_date.strftime('%Y-%m-%d')
+
             self.api_key = os.getenv('API_KEY')
 
         except Exception as e:
@@ -112,8 +115,17 @@ class DataIngestion:
                 response = requests.get(url, params=params)
                 response.raise_for_status()
 
+            except requests.exceptions.HTTPError as http_err:
+                logger.error(f"HTTP error occurred: {http_err} | Status: {response.status_code} | Response: {response.text[:200]}")
+                return None
+            except requests.exceptions.ConnectionError as conn_err:
+                logger.error(f"Connection error occurred: {conn_err}")
+                return None
+            except requests.exceptions.Timeout as timeout_err:
+                logger.error(f"Timeout error occurred: {timeout_err}")
+                return None
             except requests.RequestException as e:
-                print(f"Request failed: {e}")
+                logger.error(f"An unexpected request error occurred: {e}")
                 return None
 
             data = response.json()

@@ -31,9 +31,7 @@ class FeaturePipeline:
             data_transformation_config = config.get_data_transformation_config()
             logger.info('Data Transformation configuration loaded successfully')
             
-            data_transformation = DataTransformation(data_transformation_config,
-                                                     nyc_taxi_data,
-                                                     nyc_weather_data)
+            data_transformation = DataTransformation(data_transformation_config)
             data_transformation.initiate_feature_engineering()
 
             logger.info(f"Data Transformation pipeline completed")

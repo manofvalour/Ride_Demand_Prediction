@@ -17,16 +17,13 @@ from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zip
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class DataTransformation:
-    def __init__(self, config: DataTransformationConfig, 
-                 nyc_taxi_data: pd.DataFrame, 
-                 nyc_weather_data: pd.DataFrame
-                 ):
+    def __init__(self, config: DataTransformationConfig):
         
         self.config = config
         
         #Read both datasets with Dask
-        self.taxi_df = dd.from_pandas(nyc_taxi_data, npartitions=4)
-        self.weather_df = dd.from_pandas(nyc_weather_data, npartitions=4)
+        self.taxi_df = dd.read_parquet(config.taxi_data_local_file_path)
+        self.weather_df = dd.read_csv(config.weather_data_local_file_path)
 
         #Ensure correct dtypes for memory optimization
         self.taxi_df.index = self.taxi_df.index.astype('int32')

@@ -18,6 +18,8 @@ class DataTransformationConfig:
     shapefile_dir: Path
     taxi_zone_shapefile_url: Path
     transformed_data_file_path: Path
+    taxi_data_local_file_path: Path
+    weather_data_local_file_path: Path
 
 @dataclass
 class DataValidationConfig:

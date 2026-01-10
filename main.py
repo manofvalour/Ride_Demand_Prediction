@@ -23,36 +23,19 @@ if __name__=="__main__":
         raise RideDemandException(e,sys)
     
 
-    STAGE_NAME = 'Model Training Stage'
-    
+    STAGE_NAME = 'Model Training Stage'   
     try:
         t0= time()
         logger.info(f"{STAGE_NAME} initiated")
-        feature_pipeline = FeaturePipeline()
-        feature_pipeline.initiate_data_ingestion_and_transformation()
-
-        logger.info(f"{STAGE_NAME} completed")
+        training_pipeline = TrainingPipeline()
+        training_pipeline.initiate_model_training()
 
         t1 = time()
         dt = (t1 - t0)
         logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
 
-
     except Exception as e:
         raise RideDemandException(e,sys)
-    
-
-    #STAGE_NAME = 'Model Training Stage'
-    
-    #try:
-     #   logger.info(f"{STAGE_NAME} initiated")
-      #  training_pipeline = TrainingPipeline()
-       # training_pipeline.initiate_model_training()
-
-        #logger.info(f"{STAGE_NAME} completed")
-
-    #except Exception as e:
-     #   raise RideDemandException(e,sys)
 
 
     

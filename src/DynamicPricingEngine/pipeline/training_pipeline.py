@@ -19,7 +19,6 @@ class TrainingPipeline:
 
             model_trainer = ModelTrainer(model_trainer_config)
             data = model_trainer.retrieve_engineered_feature()
-            #data = pd.read_csv("/home/emmanuel/Dynamic-Pricing-Engine/data.csv")
             selected_df = model_trainer.feature_selection(data)
             train_df, val_df, test_df = model_trainer.split_data(selected_df)
             model, model_metric = model_trainer.model_training_and_evaluation(train_df, val_df, test_df)

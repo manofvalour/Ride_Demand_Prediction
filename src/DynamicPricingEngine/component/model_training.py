@@ -53,9 +53,8 @@ class ModelTrainer:
         try:
             ## login to feature store
             
-            now = datetime.today().strftime("%Y-%m-%d")
-            end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
-            end_date = end_date - timedelta(days=end_date.day) ## retrieving the last day of the previous month
+            now = datetime.today()
+            end_date = now - timedelta(days=end_date.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
@@ -117,8 +116,7 @@ class ModelTrainer:
         
     def feature_selection(self, df):
         try:
-            # 1. Your manually verified final feature list
-            # Based on your previous analysis, these are the high-signal features
+            # 1. Setting 'bin' as the index
             df.set_index(['bin'], inplace=True)
             final_features = [
                 'temp',
@@ -138,7 +136,7 @@ class ModelTrainer:
             # 2. Adding the target variable to the list for the final dataframe
             target_column = 'pickups'
 
-            # 3. Check if all columns exist in the dataframe to avoid KeyErrors
+            # 3. Checking if all columns exist in the dataframe to avoid KeyErrors
             available_cols = [col for col in final_features + [target_column] if col in df.columns]
 
             # 4. Create the final dataframe
@@ -215,7 +213,6 @@ class ModelTrainer:
                     "catboost": CatBoostRegressor,
                     }
 
-            #Your data
             X_train, y_train = self._prepare_features(train_df, target)
             X_val, y_val = self._prepare_features(val_df, target)
             X_test, y_test = self._prepare_features(test_df, target)
@@ -223,15 +220,14 @@ class ModelTrainer:
             # Model Training and Hyperparameter Tuning
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
-                                            param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=1)
+                                            param_spaces=self.config.optuna_param_spaces)
+                                            #n_trials=)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
             best_model_name =result_df.index[0] ## selecting the top model (model with the lowest 'RMSE')
             best_model = trained_models[best_model_name]
 
-            # Pretty print
             logger.info("\nFINAL RESULTS")
             for name, metrics in model_report.items():
                 logger.info(f"{name:8} → MAE: {metrics['mae']:.3f} | RMSE: {metrics['rmse']:.3f} | R²: {metrics['R2_score']:.3f}")
