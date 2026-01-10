@@ -54,7 +54,7 @@ class ModelTrainer:
             ## login to feature store
             
             now = datetime.today()
-            end_date = now - timedelta(days=end_date.day) ## retrieving the last day of the previous month
+            end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
@@ -62,6 +62,11 @@ class ModelTrainer:
 
             ## a year back from end date 
             start_date = end_date - relativedelta(months= 12)
+
+            start_date = start_date.strftime('%Y-%m-%d')
+            end_date = end_date.strftime('%Y-%m-%d')
+
+            logger.info('Retrieving the dataset from hopsworks feature store')
 
 
             ## login to feature store
@@ -116,8 +121,6 @@ class ModelTrainer:
         
     def feature_selection(self, df):
         try:
-            # 1. Setting 'bin' as the index
-            df.set_index(['bin'], inplace=True)
             final_features = [
                 'temp',
                 'humidity',
@@ -220,8 +223,8 @@ class ModelTrainer:
             # Model Training and Hyperparameter Tuning
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
-                                            param_spaces=self.config.optuna_param_spaces)
-                                            #n_trials=)
+                                            param_spaces=self.config.optuna_param_spaces,
+                                            n_trials=5)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
@@ -266,12 +269,3 @@ class ModelTrainer:
         except Exception as e:
             logger.error(f'Failed to save the Best model to the model artifact store')
             raise RideDemandException(e,sys)
-
-    def initiate_model_training(self):
-        try:
-            pass
-
-        except:
-            pass
-
-    

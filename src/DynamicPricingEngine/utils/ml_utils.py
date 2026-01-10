@@ -165,7 +165,7 @@ def evaluate_model(x_train: pd.DataFrame, y_train: pd.Series | np.ndarray, x_tes
 
             elif name == 'catboost':
                 cat_idx = [x_train.columns.get_loc(c) for c in cat_cols if c in x_train.columns]
-                final_model = model_cls(**best_params, task_type='GPU')
+                final_model = model_cls(**best_params, task_type='CPU') #'GPU' if torch.cuda.is_available() else 'CPU   ) ')
                 final_model.fit(x_train, y_train, cat_features=cat_idx,
                           #eval_set=[(X_val, y_val)],
                           verbose=False)
