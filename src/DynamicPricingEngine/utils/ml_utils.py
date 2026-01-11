@@ -38,7 +38,7 @@ class _ModelTrial:
 
             # Early stopping per model
             if self.name == "lgbm":
-                model = self.model_cls(**params)
+                model = self.model_cls(**params, device='cpu', n_jobs=-1, importance_type='gain')
                 model.fit(
                     X_train, y_train,
                     eval_set=[(X_val, y_val)],
@@ -48,19 +48,19 @@ class _ModelTrial:
 
             elif self.name == 'catboost':
                 cat_idx = [X_train.columns.get_loc(c) for c in self.cat_cols if c in X_train.columns]
-                model = self.model_cls(**params, task_type="CPU") #'GPU'if torch.cuda.is_available() else 'CPU')
+                model = self.model_cls(**params, task_type="CPU", thread_count=-1, early_stopping_rounds=10) #'GPU'if torch.cuda.is_available() else 'CPU')
                 model.fit(X_train, y_train, cat_features=cat_idx,
                             #eval_set=[(X_val, y_val)],
                             verbose=False)
 
             elif self.name == 'xgboost':
-                model = self.model_cls(enable_categorical=True, **params)#, early_stopping_rounds=10)
+                model = self.model_cls(enable_categorical=True,early_stopping_rounds=10, n_jobs=-1, **params)
                 model.fit(X_train, y_train,
                             eval_set=[(X_val, y_val)],
                             verbose=False)
 
             else:
-                model = self.model_cls(**params)
+                model = self.model_cls(**params, n_jobs=-1)
                 model.fit(X_train, y_train)
 
             val_pred = model.predict(X_val)
@@ -152,26 +152,30 @@ def evaluate_model(x_train: pd.DataFrame, y_train: pd.Series | np.ndarray, x_tes
 
             # Retrain on FULL training data
             if name == "xgboost":
-                final_model = model_cls(enable_categorical=True, **best_params)
-                final_model.fit(x_train, y_train)
-
+                final_model = model_cls(enable_categorical=True, **best_params, n_jobs=-1, early_stopping_rounds =10)
+                final_model.fit(x_train, y_train,
+                                    eval_set=[(x_test, y_test)],  # <--- This is what's missing
+                                    #early_stopping_rounds=10,    # Usually passed here or in the constructor
+                                    verbose=False
+                                )
 
             elif name == 'catboost':
                 cat_idx = [x_train.columns.get_loc(c) for c in cat_cols if c in x_train.columns]
-                final_model = model_cls(**best_params, task_type='CPU') #'GPU' if torch.cuda.is_available() else 'CPU   ) ')
+                final_model = model_cls(**best_params, thread_count=-1, early_stopping_rounds=10, task_type='CPU') #'GPU' if torch.cuda.is_available() else 'CPU   ) ')
                 final_model.fit(x_train, y_train, cat_features=cat_idx,
-                          #eval_set=[(X_val, y_val)],
+                          eval_set=[(x_test, y_test)],
                           verbose=False)
                 
             elif name == 'random_forest':
                 cat_cols_present = [col for col in cat_cols if col in x_train.columns]
                 X_train_encoded = pd.get_dummies(x_train, columns=cat_cols_present, drop_first=True)
                 x_test = pd.get_dummies(x_test, columns=cat_cols_present, drop_first=True)
-                final_model = model_cls(**best_params)
+                final_model = model_cls(**best_params, n_jobs =-1)
                 final_model.fit(X_train_encoded, y_train)
 
             else:
-              final_model = model_cls(**best_params)
+              final_model = model_cls(**best_params, 
+                            evaldevice='cpu', n_jobs=-1, importance_type='gain')
               final_model.fit(x_train, y_train)
 
             rmse, mae, r2= log_model(name, final_model, best_params, x_test, y_test)

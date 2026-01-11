@@ -212,10 +212,10 @@ class ModelTrainer:
             target = self.config.target_col
 
             ## models for training data
-            models = {"lgbm": LGBMRegressor,
+            models = {"catboost": CatBoostRegressor,
+                    "lgbm": LGBMRegressor,
                     "xgboost": XGBRegressor,
                     "random_forest": RandomForestRegressor,
-                    "catboost": CatBoostRegressor,
                     }
 
             X_train, y_train = self._prepare_features(train_df, target)
