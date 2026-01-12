@@ -27,6 +27,24 @@ from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
 - ingest_the_data_and model_from_feature_store_and_model_store
 - predict and return the output
 
+       final_features = [
+                'temp',
+                'humidity',
+                'pickup_hour',
+                'is_rush_hour',
+                'city_avg_speed',
+                'zone_avg_speed',
+                'zone_congestion_index',
+                'pickups_lag_1h',
+                'pulocationid',
+                'pickups_lag_24h',
+                'city_pickups_lag_1h',
+                'neighbor_pickups_lag_1h'
+            ]
+
+            # 2. Adding the target variable to the list for the final dataframe
+            target_column = 'pickups'
+
 """
 
 class PredictionRequest(BaseModel):
@@ -36,7 +54,6 @@ class PredictionRequest(BaseModel):
     @field_validator('datetime', pre=True)
     def parse_datetime(self, v):
         return pd.to_datetime(v)
-
 
     @field_validator('pulocationid')
     def check_pulocationid(self, v):
@@ -65,27 +82,27 @@ class InferencePipeline:
             self.pulocationid = pulocationid
 
         except Exception as e:
-            logger.error("Error initializing InferencePipeline", e)
+            logger.error("Error initializing Inference Pipeline", e)
             raise RideDemandException(e, sys)
 
-    def get_nyc_prediction_weather_data(self)-> pd.DataFrame:
+    def get_nyc_prediction_weather_data()-> pd.DataFrame:
 
         try:
-            base_url = self.config.weather_data_url
-            location: str = "New York, NY, United States"
-            start_of_month_str = self.start_date
-            end_of_month_str = self.end_date
-            api_key = self.api_key
-
+            # Define your API configuration
+            api_key = "HT2ZYDZG8J25XYFP2E9ABUXJF"  # Replace with your actual key
+            location = "New York, NY, United States"
+            base_url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
+        
+        
             params = {
                 "unitGroup": "us",
                 "key": api_key,
-                "include": "days,hours,current,alerts,stations",
+                "include": "current",
                 "contentType": "json"
             }
 
-            url = f"{base_url}/{location}/{start_of_month_str}/{end_of_month_str}"
-            logger.info(f"Fetching data from {start_of_month_str} to {end_of_month_str}...")
+            url = f"{base_url}/{location}/today"
+            logger.info(f"Fetching data for current timestamp{datetime.now().strftime('%Y-%m-%d, %H')}:00:00 ...")
 
             try:
                 response = requests.get(url, params=params)
@@ -95,32 +112,24 @@ class InferencePipeline:
                 print(f"Request failed: {e}")
                 return None
 
-            data = response.json()
-            days = data.get("days", [])
-            if not days:
-                print("No 'days' data found in response.")
-                return None
-
+            # Access specific data (e.g., current conditions)
+            response = response.json()
+            current = response.get("currentConditions")
             hourly_records = []
-            fields = ['datetime', 'temp', 'dew', 'humidity', 'precip',
-                      'snow', 'windspeed', 'feelslike', 'snowdepth', 'visibility']
-
-
-            for day in days:
-                for hour in day.get("hours", []):
-                    filtered_hour = {key: hour.get(key) for key in fields}
-                    filtered_hour["day"] = day.get("datetime")
-                    hourly_records.append(filtered_hour)
+            hourly_records.append(current)
 
             df_hours = pd.DataFrame(hourly_records)
-            logger.info(f"Retrieved {len(days)} days ({df_hours.shape[0]} hourly records).")
+            df_hours = df_hours[['datetime', 'temp', 'humidity']]
+            df_hours['datetime'] = pd.to_datetime(df_hours['datetime'])
+            
+            logger.info(f"Successfully Retrieved the weather data for {datetime.now().strftime('%Y-%m-%d, %H')}:00:00.")
 
             return df_hours
 
         except Exception as e:
             logger.error(f"failed to extract weather data {e}")
             raise RideDemandException(e,sys)
-
+        
     def engineer_temporal_prediction_features(self, weather_df: pd.DataFrame)-> pd.DataFrame:
         try:
             pulocationid = self.pulocationid
@@ -153,6 +162,9 @@ class InferencePipeline:
         except Exception as e:
             logger.error(f"failed to engineer temporal features for prediction data {e}")
             raise RideDemandException(e,sys)
+
+    def extract_historical_pickup_data(self)-> pd.DataFrame:
+        pass
 
     def generate_lag_features_for_prediction(self, hist_df:pd.DataFrame,
                                               pred_df: pd.DataFrame)-> pd.DataFrame:
