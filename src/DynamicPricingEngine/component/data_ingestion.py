@@ -22,8 +22,7 @@ class DataIngestion:
     def __init__(self, config: DataIngestionConfig):
         try:
             ## two months into the past
-            now = (datetime.today()- relativedelta(months=1))
-           # end_date = datetime.strptime(now, "%Y-%m-%d") ## converting to datetime
+            now = (datetime.today())
             end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
@@ -76,10 +75,7 @@ class DataIngestion:
                     cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID",
                             "DOLocationID","trip_distance"]
                     
-                    #cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID","DOLocationID"] 
-                    
                     data = pd.read_parquet(full_url, columns=cols)
-                    #data = dd.read_parquet(full_url).compute()
                     data = data[(taxi_data_date <= data['tpep_pickup_datetime']) & (data['tpep_pickup_datetime'] < taxi_data_end_date)]
                     #data = dtype_downcast(data)
                  

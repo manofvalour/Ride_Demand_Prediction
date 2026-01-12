@@ -7,6 +7,10 @@ from datetime import datetime, timedelta
 import hopsworks
 from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
+import time
+from pathlib import Path
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, retry_if_exception_message
+
 
 load_dotenv()
 
@@ -476,7 +480,7 @@ class DataTransformation:
         except Exception as e:
             logger.error("Failed to generate autoregressive features", exc_info=True)
             raise RideDemandException(e, sys)
-
+        
         
     def save_data_to_feature_store(self, df):
         try:
@@ -493,8 +497,14 @@ class DataTransformation:
         except Exception as e:
             logger.error("Unable to save the file", exc_info=True)
             raise RideDemandException(e, sys)
-        
 
+    @retry(
+        stop=stop_after_attempt(5), 
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        retry = retry_if_exception_type(RideDemandException),
+        before_sleep=lambda retry_state: logger.warning(f"Retrying Hopsworks push... Attempt {retry_state.attempt_number}"),
+        reraise=True
+    )
     def push_transformed_data_to_feature_store(self, data)-> None:
         try:
             api = os.getenv('HOPSWORKS_API_KEY')
@@ -537,12 +547,10 @@ class DataTransformation:
             logger.info('data successfully added to hopsworks feature group')
 
         except Exception as e:
-            raise RideDemandException(e,sys)
-
-        
+            raise  RideDemandException(e,sys)
+         
     def initiate_feature_engineering(self):
         try:
-    
             df = self.derive_target_and_join_to_weather_feature()
 
             ## Temporal feature
