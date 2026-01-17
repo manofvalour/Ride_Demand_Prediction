@@ -63,36 +63,23 @@ class PredictionRequest(BaseModel):
         return v
 
 class InferencePipeline:
-    def __init__(self, config: InferenceConfig, start_date_time: str, 
-                 end_date_time:str, api_key: str, pulocationid: int):
+    def __init__(self, config: InferenceConfig):
         try:
             self.config = config
-            if not isinstance(start_date_time, str):
-                raise ValueError("start_date_time must be a string in 'YYYY-MM-DD' format")
-            self.start_date = start_date_time
+            self.api_key = os.getenv('API_KEY')
 
-            if not isinstance(end_date_time, str):
-                raise ValueError("end_date_time must be a string in 'YYYY-MM-DD' format")
-            self.end_date = end_date_time
-
-            self.api_key = api_key
-
-            if not (1<=pulocationid<=263):
-                raise ValueError("PULocationID must be between 1-263")
-            self.pulocationid = pulocationid
 
         except Exception as e:
             logger.error("Error initializing Inference Pipeline", e)
             raise RideDemandException(e, sys)
 
-    def get_nyc_prediction_weather_data()-> pd.DataFrame:
+    def get_nyc_prediction_weather_data(self, config:InferenceConfig)-> pd.DataFrame:
 
         try:
             # Define your API configuration
-            api_key = "HT2ZYDZG8J25XYFP2E9ABUXJF"  # Replace with your actual key
+            api_key = self.api_key
             location = "New York, NY, United States"
-            base_url = f"https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
-        
+            base_url = self.config.weather_data_url
         
             params = {
                 "unitGroup": "us",
@@ -130,55 +117,116 @@ class InferencePipeline:
             logger.error(f"failed to extract weather data {e}")
             raise RideDemandException(e,sys)
         
-    def engineer_temporal_prediction_features(self, weather_df: pd.DataFrame)-> pd.DataFrame:
+    def engineer_temporal_prediction_features(self, df: pd.DataFrame)-> pd.DataFrame:
         try:
             pulocationid = self.pulocationid
-            weather_df['datetime']= pd.to_datetime(weather_df['day'] + ' ' + weather_df['datetime'])
-            weather_df.drop(columns=['day'], inplace=True)
 
             # Feature engineering logic goes here
-            # Example: Extract hour, day_of_week, is_weekend, etc. from datetime
-            weather_df['hour'] = weather_df['datetime'].dt.hour
-            weather_df['day_of_week'] = weather_df['datetime'].dt.dayofweek
-            weather_df['is_weekend'] = weather_df['day_of_week'].isin([5, 6]).astype(int)
-            weather_df['month'] = weather_df['datetime'].dt.month
-            weather_df['is_night_hour'] = weather_df['hour'].apply(lambda x: 1 if x < 6 or x > 20 else 0)
-            weather_df['is_rush_hour'] = weather_df['hour'].apply(lambda x: 1 if 7 <= x <= 9 or 16 <= x <= 19 else 0)
-            weather_df['season_of_year'] = weather_df['month'].apply(
-                lambda x: (x%12 + 3)//3
-            )  # 1: Winter, 2: Spring, 3: Summer, 4: Fall
-            weather_df['is_holiday'] = 0  # Placeholder, implement holiday logic as needed
-            weather_df['is_special_event'] = 0  # Placeholder, implement special event logic as needed
-            weather_df['is_payday'] = 0  # Placeholder, implement payday logic as needed
-            weather_df['pickup_year'] = weather_df['datetime'].dt.year
-            weather_df['day_of_month'] = weather_df['datetime'].dt.day
-
-            weather_df['pulocationid'] = pulocationid
-         
-
+            df['pickup_hour'] = df['datetime'].dt.hour
+            df['is_rush_hour'] = df['pickup_hour'].apply(lambda x: 1 if 7 <= x <= 9 or 16 <= x <= 19 else 0)
+        
             logger.info("Temporal Feature for prediction generated successfully.")
-            return weather_df
+            return df
 
         except Exception as e:
             logger.error(f"failed to engineer temporal features for prediction data {e}")
             raise RideDemandException(e,sys)
 
     def extract_historical_pickup_data(self)-> pd.DataFrame:
-        pass
+        try:
+            self.cat_cols = ['pickup_hour','is_rush_hour']
+
+            # Define the time range for historical data extraction
+            now = datetime.now()
+            end_date = datetime.now() - timedelta(minutes=now.minute, 
+                                                  seconds=now.second, 
+                                                  microseconds=now.microsecond)
+            start_date = end_date - timedelta(hours=24)   
+
+            logger.info('Retrieving the dataset from hopsworks feature store')
+
+            ## login to feature store
+            fs = self.project.get_feature_store()
+
+            # Get the feature group
+            fg = fs.get_feature_group(name="ridedemandprediction", version=1)
+            query=fg.select_all()
+
+            # creating a feature view
+            # create a new feature view from the feature group
+            #feature_view = fs.create_feature_view(name="ride_demand_prediction_fv",
+                                                   # version=1,
+                                                  #  description="ride demand historical data for prediction",
+                                                 #   query=query)
+
+            logger.info('hopsworks feature view created successfully')
+
+            feature_view = fs.get_feature_view(name='ride_demand_prediction_fv', version= 1)
+
+            # Materialize training dataset using Spark job
+            version, jobs = feature_view.create_training_data(start_time = start_date,
+                                                                end_time = end_date,
+                                                                description="ride demand training data",
+                                                                data_format="parquet",
+                                                                write_options = {'use_spark': True}
+                                                                )
+
+            logger.info('Training data created successfully and materialized in hopsworks')
+            logger.info(f"Data from {start_date} to {end_date} created and materialized Successfully")
+
+            feature_view = fs.get_feature_view(name='ride_demand_fv', version= 1)
+
+            df, _ = feature_view.get_training_data(training_dataset_version=1,
+                                                read_options={"use_hive":False})
+            
+            logger.info('Data successfully retrieved from the feature store')
+            
+            df.set_index(['bin'], inplace=True)
+
+            return df
+        
+        except Exception as e:
+            logger.error(f"failed to extract historical pickup data {e}")
+            raise RideDemandException(e, sys)
 
     def generate_lag_features_for_prediction(self, hist_df:pd.DataFrame,
                                               pred_df: pd.DataFrame)-> pd.DataFrame:
         try:
-            pulocationid = self.pulocationid
+            #merging historical and prediction data
+            df = pd.concat([hist_df, pred_df], ignore_index=True)
             df = df.sort_values(by='datetime')
             df.set_index('datetime', inplace=True)
 
-            # Generating lag features
-            df['pickup_lag1'] = df['pulocationid'].shift(1)
-            df['pickup_lag24'] = df['pulocationid'].shift(24)
-            df['pickup_roll_mean24'] = df['pulocationid'].rolling(window=24).mean()
-            df['pickup_roll_std_24'] = df['pulocationid'].rolling(window=24).std()
+            # getting only the last 24 hours of historical data
+            df = df.last('24H')
 
+            ## creating citywide pickup counts
+            df_city = df.groupby('datetime').agg({'pickups':'sum'}).rename(columns={'pickups':'city_pickups'})
+            df = df.merge(df_city, on='datetime', how='left')
+
+            # city avg speed
+            df['city_avg_speed'] = df['city_pickups'] / df['city_trip_distance']
+
+            ## creating neighbor pickup counts
+            df_neigh = df.groupby('pulocationid').agg({'pickups':'sum'}).rename(columns={'pickups':'neighbor_pickups_sum'})
+            df = df.merge(df_neigh, on='pulocationid', how='left')
+
+            ##  Final features needed for prediction
+               # 'city_avg_speed',
+              #  'zone_avg_speed',
+             #   'zone_congestion_index',
+            #    'pickups_lag_1h',
+           #     'pulocationid',
+          #      'pickups_lag_24h',
+         #       'city_pickups_lag_1h',
+           #     'neighbor_pickups_lag_1h'
+
+
+
+            # Generating lag features
+            df['pickup_lag1'] = df['pickups'].shift(1)
+            df['pickup_lag24'] = df['pickups'].shift(24)
+            
             df.reset_index(inplace=True)
 
             logger.info("Lag features for prediction generated successfully.")
