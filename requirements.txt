@@ -36,5 +36,6 @@ catboost
 optuna-integration[lightgbm]
 optuna-integration
 tenacity
+sodapy
 
 #-e .

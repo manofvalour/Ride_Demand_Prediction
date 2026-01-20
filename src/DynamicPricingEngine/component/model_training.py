@@ -52,7 +52,6 @@ class ModelTrainer:
     def retrieve_engineered_feature(self):
         try:
             ## login to feature store
-            
             now = datetime.today()
             end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
@@ -70,13 +69,64 @@ class ModelTrainer:
 
 
             ## login to feature store
-            project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.api_key)
+            project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.api_key,
+                                  #    config={'connect_timeout': 300, 'read_timeout': 300} 
+                                        )
             fs = project.get_feature_store()
 
             # Get the feature group
-            fg = fs.get_feature_group(name="ridedemandprediction", version=1)
-            query=fg.select([
-                'bin',
+            #fg = fs.get_feature_group(name="ridedemandprediction", version=1)
+            #query=fg.select_all()
+            
+            feature_view = fs.get_feature_view(name="ride_demand_fv",
+                                                    version=1)
+
+            #logger.info('hopsworks feature view created successfully')
+
+            try:
+                feature_view.delete_training_dataset(training_dataset_version=1)
+                logger.info("Training data version 1 deleted.")
+
+                # Materialize training dataset using Spark job
+                version, jobs = feature_view.create_training_data(start_time = start_date,
+                                                                    end_time = end_date,
+                                                                    description="365 days ride demand training data",
+                                                                    data_format="parquet",
+                                                                    write_options = {'use_spark': True}
+                                                                    )
+
+                logger.info('Training data created successfully and materialized in hopsworks')
+                logger.info(f"Data from {start_date} to {end_date} created and materialized Successfully")
+
+
+            except:
+                # Materialize training dataset using Spark job
+                version, jobs = feature_view.create_training_data(start_time = start_date,
+                                                                    end_time = end_date,
+                                                                    description="365 days ride demand training data",
+                                                                    data_format="parquet",
+                                                                    write_options = {'use_spark': True}
+                                                                    )
+
+                logger.info('Training data created successfully and materialized in hopsworks')
+                logger.info(f"Data from {start_date} to {end_date} created and materialized Successfully")
+
+            df, _ = feature_view.get_training_data(training_dataset_version=1,
+                                                read_options={"use_hive":False})
+            
+            logger.info('Data successfully retrieved from the feature store')
+            
+            df.set_index(['bin'], inplace=True)
+
+            return df
+        
+        except Exception as e:
+            logger.error(f"Error retrieving the dataset, {e}")
+            raise RideDemandException(e,sys)
+        
+    def feature_selection(self, df):
+        try:
+            final_features = [
                 'temp',
                 'humidity',
                 'pickup_hour',
@@ -90,89 +140,25 @@ class ModelTrainer:
                 'city_pickups_lag_1h',
                 'neighbor_pickups_lag_1h',
                 'pickups'
-            ]).filter((fg.datetime >= start_date) & (fg.datetime <= end_date))
+            ]
 
-            # creating a feature view
-            df = query.read()
-            logger.info('Feature data retrieved successfully from the feature store')
-
-
-            # delete the previous month feature view data
-            #FeatureView.clean(feature_store_id=fs._id, 
-             #                   feature_view_name='ride_demand_fv',
-              #                  feature_view_version=1)
-
-            # create a new feature view from the feature group
-            #feature_view = fs.create_feature_view(name="ride_demand_fv",
-             #                                       version=1,
-              #                                      description="Features for ride demand prediction",
-               #                                     query=query)
-
-            #logger.info('hopsworks feature view created successfully')
-
-            # Materialize training dataset using Spark job
-            #version, jobs = feature_view.create_training_data(start_time = start_date,
-             #                                                   end_time = end_date,
-              #                                                  description="365 days ride demand training data",
-               #                                                 data_format="parquet",
-                #                                                write_options = {'use_spark': True}
-                 #                                               )
-
-            #logger.info('Training data created successfully and materialized in hopsworks')
-            #logger.info(f"Data from {start_date} to {end_date} created and materialized Successfully")
-
-            #feature_view = fs.get_feature_view(name='ride_demand_fv', version= 1)
-
-           # df, _ = feature_view.get_training_data(training_dataset_version=1,
-             #                                   read_options={"use_hive":False})
-            
-            #logger.info('Data successfully retrieved from the feature store')
-            
-            df.set_index(['bin'], inplace=True)
-
-            return df
-        
-        except Exception as e:
-            logger.error(f"Error retrieving the dataset, {e}")
-            raise RideDemandException(e,sys)
-        
-   # def feature_selection(self, df):
-    #    try:
-     #       final_features = [
-      #          'temp',
-       #         'humidity',
-        #        'pickup_hour',
-         #       'is_rush_hour',
-          #      'city_avg_speed',
-           #     'zone_avg_speed',
-            #    'zone_congestion_index',
-             #   'pickups_lag_1h',
-              #  'pulocationid',
-               # 'pickups_lag_24h',
-             #   'city_pickups_lag_1h',
-             #   'neighbor_pickups_lag_1h'
-           # ]
-
-            # 2. Adding the target variable to the list for the final dataframe
-           # target_column = 'pickups'
-
-            # 3. Checking if all columns exist in the dataframe to avoid KeyErrors
-           # available_cols = [col for col in final_features + [target_column] if col in df.columns]
+             #3. Checking if all columns exist in the dataframe to avoid KeyErrors
+            available_cols = [col for col in final_features if col in df.columns]
 
            # # 4. Create the final dataframe
-          #  df_final = df[available_cols].copy()
+            df_final = df[available_cols].copy()
 
             # Log what happened for debugging
-          #  missing_cols = set(final_features + [target_column]) - set(available_cols)
-         #   if missing_cols:
-          #      logger.warning(f"Missing columns from selection: {missing_cols}")
+            missing_cols = set(final_features) - set(available_cols)
+            if missing_cols:
+                logger.warning(f"Missing columns from selection: {missing_cols}")
 
-          #  logger.info(f"Final feature set prepared with {len(available_cols) - 1} features.")
+            logger.info(f"Final feature set prepared with {len(available_cols) - 1} features.")
 
-          #  return df_final
+            return df_final
 
-       # except Exception as e:
-        #    raise RideDemandException(e, sys)
+        except Exception as e:
+            raise RideDemandException(e, sys)
         
     def split_data(self, df):
         try:

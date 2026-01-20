@@ -178,15 +178,15 @@ def load_shapefile_from_zip(url, extract_to):
     Returns:
         geopandas.GeoDataFrame: The loaded shapefile as a GeoDataFrame.
     """
-    # Step 1: Download the zipfile
+    # Downloading the zipfile
     response = requests.get(url)
     response.raise_for_status()  # raise error if download failed
     
-    # Step 2: Extract the zipfile
+    # Extract the zipfile
     with zipfile.ZipFile(io.BytesIO(response.content)) as z:
         z.extractall(extract_to)
     
-    # Step 3: Find the .shp file (main shapefile component)
+    # Find the .shp file (main shapefile component)
     shp_file = None
     for root, dirs, files in os.walk(extract_to):
         for file in files:
@@ -197,6 +197,8 @@ def load_shapefile_from_zip(url, extract_to):
     if shp_file is None:
         raise FileNotFoundError("No .shp file found in the extracted archive.")
     
-    # Step 4: Load shapefile into GeoDataFrame
+    # Load shapefile into GeoDataFrame
     gdf = gpd.read_file(shp_file)
     return gdf
+
+

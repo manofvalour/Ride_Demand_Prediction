@@ -2,6 +2,8 @@ from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.pipeline.feature_pipeline import FeaturePipeline
 from src.DynamicPricingEngine.pipeline.training_pipeline import TrainingPipeline
+from src.DynamicPricingEngine.pipeline.prediction_pipeline import InferencePipeline
+
 import sys
 from time import time
 
@@ -23,12 +25,27 @@ if __name__=="__main__":
    #     raise RideDemandException(e,sys)
     
 
-    STAGE_NAME = 'Model Training Stage'   
+    #STAGE_NAME = 'Model Training Stage'   
+    #try:
+     #   t0= time()
+      #  logger.info(f"{STAGE_NAME} initiated")
+       # training_pipeline = TrainingPipeline()
+        #training_pipeline.initiate_model_training()
+
+      #  t1 = time()
+       # dt = (t1 - t0)
+     #   logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
+
+   # except Exception as e:
+    #    raise RideDemandException(e,sys)
+    
+
+    STAGE_NAME = 'Prediction Stage'   
     try:
         t0= time()
         logger.info(f"{STAGE_NAME} initiated")
-        training_pipeline = TrainingPipeline()
-        training_pipeline.initiate_model_training()
+        pred_pipeline = InferencePipeline()
+        pred_pipeline.initiate_inference()
 
         t1 = time()
         dt = (t1 - t0)
