@@ -17,7 +17,7 @@ load_dotenv()
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import DataTransformationConfig
-from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zip
+from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class DataTransformation:
@@ -59,7 +59,7 @@ class DataTransformation:
             except Exception as e:
                 logger.warning(f"Failed to load neighbor cache: {e}")
 
-        zones_gdf = load_shapefile_from_zip(self.config.taxi_zone_shapefile_url, 
+        zones_gdf = load_shapefile_from_zipfile(self.config.taxi_zone_shapefile_url, 
                                             self.config.shapefile_dir)
         zones_gdf_left = zones_gdf.rename(columns={"LocationID": "LocationID_left"})
         zones_gdf_right = zones_gdf.rename(columns={"LocationID": "LocationID_right"})

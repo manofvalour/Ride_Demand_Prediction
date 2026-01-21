@@ -110,6 +110,7 @@ class ConfigurationManager:
         try:
             ## creating the inference root directory
             create_dir([config.root_dir])
+            logger.info(f"Inference root directory created successfully: {config.root_dir}")
 
             inference_config = InferenceConfig(
                 root_dir = config.root_dir,

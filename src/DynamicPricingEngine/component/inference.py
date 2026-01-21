@@ -20,8 +20,8 @@ load_dotenv()
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
-from src.DynamicPricingEngine.entity.config_entity import InferenceConfig, DataTransformationConfig
-from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zip
+from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
+from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
 
 """" Things to Do
        final_features = [
@@ -88,8 +88,17 @@ class Inference:
             except Exception as e:
                 logger.info(f"Failed to load neighbor cache: {e}")
 
-        zones_gdf = load_shapefile_from_zip(self.config.taxi_zone_shapefile_url,
+        logger.info('loading neighbor feature in _get_neighbor dict')
+        zones_gdf = load_shapefile_from_zipfile(self.config.taxi_zone_shapefile_url,
                                             self.config.shapefile_dir)
+        
+        if zones_gdf is None:
+            logger.error("Failed to acquire shapefile after all retries.")
+            return {}
+
+        # Spatial Join Logic
+        logger.info("Calculating adjacency (touches)...")
+        
         zones_gdf_left = zones_gdf.rename(columns={"LocationID": "LocationID_left"})
         zones_gdf_right = zones_gdf.rename(columns={"LocationID": "LocationID_right"})
         neighbors_df = gpd.sjoin(zones_gdf_left, zones_gdf_right, how="left", predicate="touches")
@@ -103,7 +112,8 @@ class Inference:
                 pickle.dump(_neighbor_dict, f)
 
         except Exception as e:
-            print(f"Failed to persist neighbor cache: {e}")
+            logger.error(f"Failed to persist neighbor cache: {e}")
+
         logger.info("neighbor dict retrieved successfully")
         return _neighbor_dict
 
@@ -276,15 +286,15 @@ class Inference:
     def get_zone_speeds(self, df):
         try:    
             # Load the official NYC Taxi Zone lookup table
-            zone_df = pd.read_csv(self.config.zone_lookup_table_url)
-
-            client = Socrata("data.cityofnewyork.us", None) # App Token is better if you have one
+            app_token = os.getenv('NYC_OPEN_DATA_APP_TOKEN')
+            client = Socrata("data.cityofnewyork.us", app_token=app_token) # App Token is better if you have one
             
-            #Get the most recent 2,000 speed records in one go
+            # Get the most recent 2,000 speed records in one go
+            logger.info('loading the dataset')
             results = client.get("i4gi-tjb9", limit=2000, order="data_as_of DESC")
+            logger.info('data successfully downloaded from socatrated')
             speed_data = pd.DataFrame.from_records(results)
             speed_data['speed'] = pd.to_numeric(speed_data['speed'])
-
             
             #Create a dictionary of Borough Averages as a backup
             borough_map = speed_data.groupby('borough')['speed'].mean().to_dict()
@@ -293,6 +303,7 @@ class Inference:
             def fast_map(row):
                 try:
                     # Get the zone name for the ID
+                    zone_df = download_csv_from_web(self.config.zone_lookup_table_url)
                     z_info = zone_df[zone_df['LocationID'] == row['pulocationid']]
                     if z_info.empty: return None
                     
