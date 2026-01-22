@@ -14,7 +14,9 @@ import io
 import geopandas as gpd
 import pickle
 from sodapy import Socrata
-
+import joblib
+import time
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, retry_if_exception_message
 
 load_dotenv()
 
@@ -66,6 +68,7 @@ class Inference:
             self.api_key = os.getenv('API_KEY')
             self.hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
             self.ny_tz = ZoneInfo("America/New_York")
+            self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.hopsworks_api)
 
         #Cache neighbor dictionary
             self._neighbor_dict = None
@@ -179,8 +182,7 @@ class Inference:
 
     def extract_historical_pickup_data(self, start_date=None, end_date=None) -> pd.DataFrame:
         try:
-            project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.hopsworks_api)
-            fs = project.get_feature_store()
+            fs = self.project.get_feature_store()
 
             end_date_utc = datetime.now(self.ny_tz).replace(minute=0, second=0, microsecond=0)
 
@@ -420,12 +422,147 @@ class Inference:
             logger.error()
             raise RideDemandException(e,sys)
 
-    
-    def push_engineered_features_to_feature_store(self):
-        pass
 
-    def make_predictions(self):
-        pass
+    def download_model_and_load(self):
+    # Attempt the connection/download up to 3 times
+        for attempt in range(3):
+            try:
+                mr = self.project.get_model_registry()
+
+                #Get metadata and download files
+                model_meta = mr.get_model("ride_demand_prediction_model", version=2)
+
+                logger.info(f"Attempt {attempt + 1}: Downloading model...")
+                model_dir = model_meta.download() # This is the root directory of the downloaded artifacts
+
+                # Identify and Load the actual model file
+                possible_model_names = ["model.pkl", "model.joblib", "ride_demand_prediction_model.pkl"]
+                found_model_file = None
+
+                # Check the root of the downloaded directory first
+                for name in possible_model_names:
+                    potential_path = os.path.join(model_dir, name)
+                    if os.path.exists(potential_path):
+                        found_model_file = potential_path
+                        break
+
+                # checking a common 'model' subdirectory (e.g., for MLflow-saved models)
+                if found_model_file is None:
+                    model_subdir = os.path.join(model_dir, "model") # Common MLflow subdirectory
+                    for name in possible_model_names:
+                        potential_path = os.path.join(model_subdir, name)
+                        if os.path.exists(potential_path):
+                            found_model_file = potential_path
+                            break
+
+                if found_model_file is None:
+                    raise FileNotFoundError(f"No model file found in '{model_dir}' or its 'model' subdirectory with expected names.")
+
+                loaded_model = joblib.load(found_model_file)
+                logger.info(f"Model loaded successfully from: {found_model_file}")
+
+                return loaded_model
+
+            except (ConnectionError, Exception) as e:
+                logger.error(f"Attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    time.sleep(5) # Wait 5 seconds before retrying
+                else:
+                    logger.error(f"unable to load the model from hopsworks, {e}")
+                    raise RideDemandException(e,sys)
+
+    def prepare_and_predict(model, final_df):
+        try:
+            #Definining the EXACT feature list used during training
+            feature_cols = [
+                'temp', 'humidity', 'pickup_hour', 'is_rush_hour',
+                'city_avg_speed', 'zone_avg_speed', 'zone_congestion_index',
+                'pickups_lag_1h', 'pickups_lag_24h',
+                'city_pickups_lag_1h', 'neighbor_pickups_lag_1h'
+            ]
+
+            #Reordering columns and handle missing data
+            X = final_df[feature_cols].fillna(0).copy() # Added .copy() to prevent SettingWithCopyWarning
+
+            #Convert categorical features to 'category' dtype as they were during training
+            categorical_features_for_prediction = ['pickup_hour', 'is_rush_hour']
+            for col in categorical_features_for_prediction:
+                if col in X.columns:
+                    X[col] = X[col].astype('category')
+
+            #Generate Predictions
+            predictions = model.predict(X)
+
+            #Attach predictions back to a readable dataframe
+            results = final_df.copy()
+            results['predicted_pickups'] = predictions
+            # Rounding the prediction
+            results['predicted_pickups'] = results['predicted_pickups'].clip(lower=0).round().astype(int)
+
+            ## saving the predicted batch
+        
+
+            logger.info('Prediction completed!')
+
+            return results
+        
+        except Exception as e:
+            logger.error(f"Error in prepare_and_predict: {e}")
+            raise RideDemandException(e,sys)
+        
+    @retry(
+        stop=stop_after_attempt(5),
+        wait=wait_exponential(multiplier=2, min=5, max=60),
+        retry = retry_if_exception_type(Exception),
+        before_sleep=lambda retry_state: print(f"Retrying Hopsworks push... Attempt {retry_state.attempt_number}"),
+        reraise=True
+    )
+    def push_predition_to_feature_store(self, data)-> None:
+        try:
+            ##initializing and login to hopswork feature store
+            fs = self.project.get_feature_store()
+
+            type_mapping = {
+                'is_rush_hour': 'int32'
+            }
+
+            for col, dtype in type_mapping.items():
+                if col in data.columns:
+                    data[col] = data[col].astype(dtype)
+
+            # Clean up potentially redundant index columns if they exist
+            if 'level_0' in data.columns:
+                data.drop(columns=['level_0'], inplace=True)
+            if 'index' in data.columns:
+                data.drop(columns=['index'], inplace=True)
+
+            # Ensure 'bin' is a column and create 'bin_str' from it.
+            if 'bin' in data.columns:
+                data['bin_str'] = data['bin'].astype(str)
+            else:
+                # Fallback if 'bin' somehow became the index again
+                data['bin_str'] = data.index.astype(str)
+                data.reset_index(inplace=True)
+
+            data.rename(columns={'predicted_pickups':'pickups'}, inplace=True)
+
+            ## retrieving the feature group
+            prediction_fg = fs.get_or_create_feature_group(
+                    name="demand_predictions",
+                    version=1,
+                    primary_key=['pulocationid', 'bin_str'],
+                    event_time='bin',
+                    description="Logs of model predictions for evaluation"
+                )
+
+            ## inserting new data in the feature group created above
+            prediction_fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
+
+            logger.info('data successfully added to hopsworks feature group')
+
+        except Exception as e:
+            logger.error('unable to store the dataset to feature store')
+            raise  RideDemandException(e,sys)
 
     def initiate_prediction_pipeline(self):
         pass

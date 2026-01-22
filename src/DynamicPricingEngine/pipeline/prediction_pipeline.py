@@ -37,7 +37,6 @@ class InferencePipeline:
 
             pred_pipe = Inference(inference_config)
 
-            #None and end_date is None:
             hist_data = pred_pipe.extract_historical_pickup_data(self.start_date, self.end_date)
 
             hist_data = pred_pipe.citywide_hourly_demand(hist_data)
@@ -56,8 +55,9 @@ class InferencePipeline:
 
             logger.info('Inference data created Successfully')
 
-            print(final_df.shape)
-            print(final_df.head())
+            model= pred_pipe.deploy_model_and_load()
+            prediction = pred_pipe.prepare_and_predict(model, final_df)
+            pred_pipe.push_predition_to_feature_store(prediction)
         
         except Exception as e:
             logger.error(f'Unable to initiate model training, {e}')
