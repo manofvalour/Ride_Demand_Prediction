@@ -29,18 +29,10 @@ class DataTransformation:
         self.taxi_df = dd.read_parquet(config.taxi_data_local_file_path)
         self.weather_df = dd.read_csv(config.weather_data_local_file_path)
 
-        #Ensure correct dtypes for memory optimization
-        self.taxi_df.index = self.taxi_df.index.astype('int32')
-        self.weather_df.index = self.weather_df.index.astype('int32')
-
         #Ensure datetime types
         for col in ['tpep_pickup_datetime', 'tpep_dropoff_datetime']:
             if col in self.taxi_df.columns:
                 self.taxi_df[col] = dd.to_datetime(self.taxi_df[col], errors='coerce')
-
-        # Precompute bin
-        if 'tpep_pickup_datetime' in self.taxi_df.columns:
-            self.taxi_df['bin'] = self.taxi_df['tpep_pickup_datetime'].dt.floor('60min')
 
          #Cache neighbor dictionary
         self._neighbor_dict = None
@@ -77,43 +69,12 @@ class DataTransformation:
         return self._neighbor_dict
 
 
-    def derive_target_and_join_to_weather_feature(self) -> dd.DataFrame:
+    def merge_weather_features(self) -> dd.DataFrame:
         try:
-            taxi_df = self.taxi_df[['PULocationID', 'bin']]
-
-            # Aggregate pickups per zone-hour
-            y = (taxi_df
-                 .groupby(['PULocationID', 'bin'])
-                 .size().rename('pickups')
-                 .reset_index())
             
-            y['bin']= y['bin'].astype('datetime64[ns]')
-            y['PULocationID']= y['PULocationID'].astype('int32')
-
-            # Materialized data to Pandas to build full grid then back to Dask
-            zones = y['PULocationID'].unique().compute()
-
-            time_index = pd.date_range(y['bin'].min().compute(), 
-                                       y['bin'].max().compute(), 
-                                       freq='60min')
-            
-            grid = pd.MultiIndex.from_product([zones, time_index], 
-                                              names=['PULocationID', 
-                                                     'bin']).to_frame(index=False)
-
-            #y['PULocationID'] = y['PULocationID'].astype('int32')
-            grid['PULocationID'] = grid['PULocationID'].astype('int32')
-
-            # Align datetime precision
-            y['bin'] = y['bin'].astype('datetime64[ns]')
-            grid['bin'] = grid['bin'].astype('datetime64[ns]')
-
-            y = dd.from_pandas(grid, npartitions=4).merge(y, how='left', 
-                                                          on=['PULocationID', 'bin'])
-            y = y.fillna({'pickups': 0})
-
             # Weather alignment
             weather_df = self.weather_df
+            taxi_df = self.taxi_df
             weather_df['bin'] = dd.to_datetime(
                 weather_df['day'].astype(str) + ' ' + 
                 weather_df['datetime'].astype(str),
@@ -122,10 +83,12 @@ class DataTransformation:
             
             #Dropping the Day column
             weather_df = weather_df.drop(columns='day')
-            y.index = y.index.astype('int64')
+
+            ## making the dtype the same
+            weather_df['bin'] = weather_df['bin'].astype('datetime64[us]')
 
             # Merge target + weather and sort by PUlocationID and bin
-            df = y.merge(weather_df, on='bin', how='left').map_partitions(
+            df = taxi_df.merge(weather_df, on='bin', how='left').map_partitions(
                 lambda pdf: pdf.sort_values(['PULocationID', 'bin'])
             )
 
@@ -551,7 +514,7 @@ class DataTransformation:
          
     def initiate_feature_engineering(self):
         try:
-            df = self.derive_target_and_join_to_weather_feature()
+            df = self.merge_weather_features()
 
             ## Temporal feature
             df = self.engineer_temporal_feature(df)

@@ -25,26 +25,6 @@ from src.DynamicPricingEngine.exception.customexception import RideDemandExcepti
 from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
 from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
 
-"""" Things to Do
-       final_features = [
-                'temp',
-                'humidity',
-                'pickup_hour',
-                'is_rush_hour',
-                'city_avg_speed',
-                'zone_avg_speed',
-                'zone_congestion_index',
-                'pickups_lag_1h',
-                'pulocationid',
-                'pickups_lag_24h',
-                'city_pickups_lag_1h',
-                'neighbor_pickups_lag_1h'
-            ]
-
-            # 2. Adding the target variable to the list for the final dataframe
-            target_column = 'pickups'
-
-"""
 
 #class PredictionRequest(BaseModel):
  #   datetime: str
@@ -171,7 +151,7 @@ class Inference:
             weather_df['pickup_hour'] = weather_df['datetime'].dt.hour
             weather_df['is_rush_hour'] = weather_df['pickup_hour'].apply(lambda x: 1 if 7 <= x <= 9 or 16 <= x <= 19 else 0)
             weather_df.rename(columns={'datetime':'bin'}, inplace=True)
-
+            
             logger.info("Temporal Feature for prediction generated successfully.")
             return weather_df
 
@@ -563,6 +543,3 @@ class Inference:
         except Exception as e:
             logger.error('unable to store the dataset to feature store')
             raise  RideDemandException(e,sys)
-
-    def initiate_prediction_pipeline(self):
-        pass
