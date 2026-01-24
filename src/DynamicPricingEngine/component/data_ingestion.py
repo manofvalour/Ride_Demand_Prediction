@@ -10,6 +10,7 @@ import re
 from dotenv import load_dotenv
 import gc
 from dateutil.relativedelta import relativedelta
+import numpy as np
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -34,13 +35,16 @@ class DataIngestion:
             start_date= end_date - timedelta(days=days-1)
 
             self.config = config
+            start_date = start_date - relativedelta(months=11)  #1
+            end_date = end_date - relativedelta(months=11) #2
+
             self.start_date = start_date.strftime('%Y-%m-%d')
             self.end_date = end_date.strftime('%Y-%m-%d')
 
             self.api_key = os.getenv('API_KEY')
 
         except Exception as e:
-            logger.info(f"unable to calculate the end_date and start_date, {e}")
+            logger.error(f"unable to calculate the end_date and start_date, {e}")
             raise RideDemandException(e,sys)
 
     ## things to do: (ingesting the data (weather and nyc_yellow_taxi_data)) -> nyc_tlc_url, 
@@ -347,25 +351,29 @@ class DataIngestion:
             logger.info(f"saving the NYC_weather dataset to {weather_file_path}")
             nyc_weather_data.to_csv(weather_file_path, index= False)
 
-            logger.info('Successfully saved the datasets to artifacts paths: {taxi_file_path},{weather_file_path}')
+            logger.info(f'Successfully saved the datasets to artifacts paths: {taxi_file_path},{weather_file_path}')
        
         except Exception as e:
             logger.error(f"Unable to save the datasets to artifact: {e}")
             raise RideDemandException(e,sys)
         
     def initiate_data_ingestion(self):
-        yellow_df = self.get_NYC_ride_data('yellow')
-        green_df = self.get_NYC_ride_data('green')
-        hvfhv_df = self.get_NYC_ride_data('hvfhv')
+        try:
+            yellow_df = self.get_NYC_ride_data('yellow')
+            green_df = self.get_NYC_ride_data('green')
+            hvfhv_df = self.get_NYC_ride_data('hvfhv')
 
-        logger.info(f'Taxi_data downloaded. yellow_taxi_data_size: {yellow_df.shape}')
-        logger.info(f'Taxi_data downloaded. Green_taxi_data_size: {green_df.shape}')
-        logger.info(f'Taxi_data downloaded. HVFHV_data_size: {hvfhv_df.shape}')
+            logger.info(f'Taxi_data downloaded. yellow_taxi_data_size: {yellow_df.shape}')
+            logger.info(f'Taxi_data downloaded. Green_taxi_data_size: {green_df.shape}')
+            logger.info(f'Taxi_data downloaded. HVFHV_data_size: {hvfhv_df.shape}')
 
-        taxi_df = self.derive_targets(yellow_df, green_df, hvfhv_df)
-        logger.info(f"Target feature derived successfully!")
+            taxi_df = self.derive_targets(yellow_df, green_df, hvfhv_df)
+            logger.info(f"Target feature derived successfully!")
 
-        weather_df = self.extract_nyc_weather_data()
-        logger.info(f'Weather_data downloaded. Weather_data_size: {weather_df.shape}')
+            weather_df = self.extract_nyc_weather_data()
+            logger.info(f'Weather_data downloaded. Weather_data_size: {weather_df.shape}')
 
-        return taxi_df, weather_df
+            return taxi_df, weather_df
+
+        except Exception as e:
+            raise RideDemandException(e,sys)

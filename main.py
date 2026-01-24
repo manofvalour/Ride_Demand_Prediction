@@ -9,20 +9,20 @@ from time import time
 
 if __name__=="__main__":
 
-   # STAGE_NAME = 'Data Ingestion and Transformation Stage'
+    STAGE_NAME = 'Data Ingestion and Transformation Stage'
     
-  #  try:
-   #     t0 = time()
-    #    logger.info(f"{STAGE_NAME} initiated")
-     #   feature_pipeline = FeaturePipeline()
-      #  feature_pipeline.initiate_data_ingestion_and_transformation()
+    try:
+        t0 = time()
+        logger.info(f"{STAGE_NAME} initiated")
+        feature_pipeline = FeaturePipeline()
+        feature_pipeline.initiate_data_ingestion_and_transformation()
 
-      #  t1 = time()
-      #  dt = (t1 - t0)
-      #  logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
+        t1 = time()
+        dt = (t1 - t0)
+        logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
 
-    #except Exception as e:
-     #   raise RideDemandException(e,sys)
+    except Exception as e:
+        raise RideDemandException(e,sys)
     
 
    # STAGE_NAME = 'Model Training Stage'   
@@ -40,20 +40,20 @@ if __name__=="__main__":
    #     raise RideDemandException(e,sys)
     
 
-    STAGE_NAME = 'Prediction Stage'   
+    #STAGE_NAME = 'Prediction Stage'   
     
-    try:
-        t0= time()
-        logger.info(f"{STAGE_NAME} initiated")
-        pred_pipeline = InferencePipeline()
-        pred_pipeline.initiate_inference()
+    #try:
+     #   t0= time()
+      #  logger.info(f"{STAGE_NAME} initiated")
+       # pred_pipeline = InferencePipeline()
+        #pred_pipeline.initiate_inference()
 
-        t1 = time()
-        dt = (t1 - t0)
-        logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
+       # t1 = time()
+       # dt = (t1 - t0)
+       # logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
 
-    except Exception as e:
-        raise RideDemandException(e,sys)
+   # except Exception as e:
+    #    raise RideDemandException(e,sys)
 
 
     
