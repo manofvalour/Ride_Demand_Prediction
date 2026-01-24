@@ -402,21 +402,6 @@ class DataTransformation:
 
             ##converting dask dataframe to pandas dataframe
             data = data.compute()
-
-            # 1. Define the desired data types
-            #type_mapping = {
-             #   'pickups': 'int64',
-              #  'city_pickups': 'int64',
-               # 'neighbor_pickups_sum': 'int64',
-                #'is_holiday': 'int32',
-           #     'Is_special_event': 'int32'
-           # }
-
-            # 2. Apply the casting safely
-         #   for col, dtype in type_mapping.items():
-          #      if col in data.columns:
-           #         data[col] = data[col].astype(dtype)
-
             ## creating a new feature group
             fg = fs.get_or_create_feature_group(
                 name = 'nycdemandprediction',
@@ -430,7 +415,7 @@ class DataTransformation:
 
             ## inserting new data in the feature group created above
             fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
-
+            
             logger.info('data successfully added to hopsworks feature group')
 
         except Exception as e:
