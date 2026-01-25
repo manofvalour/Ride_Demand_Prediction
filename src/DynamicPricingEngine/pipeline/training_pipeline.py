@@ -21,8 +21,9 @@ class TrainingPipeline:
             data = model_trainer.retrieve_engineered_feature()
           #  selected_df = model_trainer.feature_selection(data)
             train_df, val_df, test_df = model_trainer.split_data(data)
-            model, model_metric = model_trainer.model_training_and_evaluation(train_df, val_df, test_df)
-            model_trainer.save_model_to_model_store(model, model_metric)
+            model, model_metric, x_test, y_test = model_trainer.model_training_and_evaluation(train_df, val_df, test_df)
+            model_trainer.save_model_to_model_store(model, model_metric, 
+                                                    x_test, y_test)
 
             logger.info('Model Trained  and saved to model store Successfully')
 

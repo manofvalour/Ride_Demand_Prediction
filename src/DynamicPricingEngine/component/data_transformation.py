@@ -306,8 +306,6 @@ class DataTransformation:
                               how='left', suffixes=("", '_y'))
                 df[output_col_name] = df[output_col_name].fillna(0)
 
-            logger.info(df.columns)
-
             return df
         except Exception as e:
             logger.error("Unable to generate neighbor features", e)
@@ -436,9 +434,6 @@ class DataTransformation:
 
              ## Autoregressive feature
             df = self.engineer_autoregressive_signals(df)
-
-            logger.info(len(df.columns))
-            logger.info(df.columns)
 
             ## saving the data
             #self.save_data_to_feature_store(df)

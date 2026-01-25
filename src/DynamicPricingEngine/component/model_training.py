@@ -18,6 +18,8 @@ import dill
 from sklearn.feature_selection import mutual_info_regression
 import mlflow
 from pathlib import Path
+from hsml.schema import Schema
+from hsml.model_schema import ModelSchema
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -31,22 +33,23 @@ from hsfs.feature_view import FeatureView
 from dotenv import load_dotenv
 load_dotenv()
 
-dagshub.init(repo_owner='manofvalour',
-             repo_name='Dynamic-Pricing-Engine',
-             mlflow=True)
-
-mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
-mlflow.set_experiment(experiment_name="Ride Demand Prediction")
-
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         try:
+            dagshub.init(repo_owner='manofvalour', 
+                         repo_name='Dynamic-Pricing-Engine',
+                         mlflow=True)
+
+            mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
+            mlflow.set_experiment(experiment_name="Ride Demand Prediction")
 
             self.api_key = os.getenv('HOPSWORKS_API_KEY')
             self.config= config
             self.cat_cols = ['day_of_week','is_night_hour','pickup_hour',
                              'is_rush_hour','pulocationid', 
                              "pickup_month"]
+            self.project = hopsworks.login(project='RideDemandPrediction',
+                                      api_key_value=self.api_key)
 
 
         except Exception as e:
@@ -61,16 +64,14 @@ class ModelTrainer:
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
             end_date = (end_date- timedelta(days=days_to_subtract)+ timedelta(days=1))
-            start_date = end_date - relativedelta(months= 12)  #a year back from end date
+            start_date = end_date - relativedelta(months=7)  #a year back from end date
 
             start_date = start_date.strftime('%Y-%m-%d')
             end_date = end_date.strftime('%Y-%m-%d')
 
             logger.info('Retrieving the dataset from hopsworks feature store')
 
-            project = hopsworks.login(project='RideDemandPrediction',
-                                      api_key_value=self.api_key)
-            fs = project.get_feature_store()
+            fs = self.project.get_feature_store()
             
             fg = fs.get_feature_group(
                 name = 'nycdemandprediction',
@@ -148,7 +149,8 @@ class ModelTrainer:
             y = df[targets]
             
             # Define non-feature columns that should be dropped 
-            to_drop = targets + ['pulocationid', 'pickup_datetime', 'bin']
+            to_drop = targets + ['pickup_datetime', 'bin']
+            df.reset_index(inplace=True)
             X = df.drop(columns=to_drop, errors='ignore')
 
             #Handle Categorical Columns
@@ -163,28 +165,28 @@ class ModelTrainer:
             logger.error(f"Feature preparation failed: {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self, train_df:pd.DataFrame, 
-                                    val_df:pd.DataFrame, 
+    def model_training_and_evaluation(self, train_df:pd.DataFrame,
+                                    val_df:pd.DataFrame,
                                     test_df:pd.DataFrame):
         try:
-            target = self.config.target_col
+            target = ['target_yellow', 'target_green', 'target_hvfhv']
 
             ## models for training data
-            models = {"catboost": CatBoostRegressor,
-                    "lgbm": LGBMRegressor,
-                    "xgboost": XGBRegressor,
-                    "random_forest": RandomForestRegressor,
+            models = {"lgbm": LGBMRegressor,
+                    #"xgboost": XGBRegressor,
+                    #"random_forest": RandomForestRegressor,
+                    #'catboost': CatBoostRegressor
                     }
 
             X_train, y_train = self._prepare_features(train_df, target)
             X_val, y_val = self._prepare_features(val_df, target)
             X_test, y_test = self._prepare_features(test_df, target)
-           
+
             # Model Training and Hyperparameter Tuning
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
                                             param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=10)
+                                            n_trials=30)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
@@ -197,13 +199,14 @@ class ModelTrainer:
                 best_model_metrics = model_report[best_model_name]
 
             logger.info(f"{best_model_name} is the model with the best metrics")
-            return best_model, best_model_metrics
+            return best_model, best_model_metrics, X_test, y_test
 
         except Exception as e:
             logger.error(f"Model training and evaluation failed, {e}")
             raise RideDemandException(e,sys)
-
-    def save_model_to_model_store(self, model, model_metrics):
+        
+    def save_model_to_model_store(self, model, model_metrics, 
+                                  x_test, y_test):
         """ saving model to the artifact store """
         try:
             # saving model 
@@ -215,11 +218,19 @@ class ModelTrainer:
 
             ## saving the model to hopsworks model store
             logger.info('Saving the model to hopsworks model registry')
+            
+            # Define the input and output schema from your training data
+            input_schema = Schema(x_test)
+            output_schema = Schema(y_test)
+
+            # Create the Model Schema object
+            model_schema = ModelSchema(input_schema, output_schema)
             model_registry = self.project.get_model_registry()
 
-            model_hopsworks = model_registry.sklearn.create_model(
+            model_hopsworks = model_registry.python.create_model(
                 name="ride_demand_prediction_model",
                 metrics= model_metrics,
+                model_schema = model_schema,
                 description="Model to predict ride demand based on historical features."
             )
             model_hopsworks.save(model_dir)
