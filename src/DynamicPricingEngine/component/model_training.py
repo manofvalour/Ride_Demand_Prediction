@@ -186,7 +186,7 @@ class ModelTrainer:
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
                                             param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=30)
+                                            n_trials=50)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
