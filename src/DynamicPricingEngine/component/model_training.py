@@ -1,21 +1,13 @@
 import os, sys
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import pandas as pd
-import numpy as np
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta, datetime
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 from sklearn.ensemble import RandomForestRegressor
 import dagshub
 import dill
-from sklearn.feature_selection import mutual_info_regression
 import mlflow
 from pathlib import Path
 from hsml.schema import Schema
@@ -26,9 +18,7 @@ from src.DynamicPricingEngine.exception.customexception import RideDemandExcepti
 from src.DynamicPricingEngine.config.configuration import ModelTrainerConfig
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 from src.DynamicPricingEngine.utils.ml_utils import evaluate_model
-from src.DynamicPricingEngine.utils.common_utils import save_pickle
 import hopsworks
-from hsfs.feature_view import FeatureView
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -64,7 +54,7 @@ class ModelTrainer:
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
             end_date = (end_date- timedelta(days=days_to_subtract)+ timedelta(days=1))
-            start_date = end_date - relativedelta(months=7)  #a year back from end date
+            start_date = end_date - relativedelta(months=12)  #a year back from end date
 
             start_date = start_date.strftime('%Y-%m-%d')
             end_date = end_date.strftime('%Y-%m-%d')
@@ -92,7 +82,7 @@ class ModelTrainer:
                               'target_yellow', 'target_green', 'target_hvfhv']
             
             query = fg.select(final_features).filter(
-                (fg.bin >= start_date) & (fg.bin <= end_date))
+                (fg.get_feature('bin') >= start_date) & (fg.get_feature("bin") <= end_date))
 
             df = query.read()
             logger.info(f"Successfully retrieved {len(df)} rows for window: {start_date} to {end_date}")
@@ -103,7 +93,7 @@ class ModelTrainer:
             return df
 
         except Exception as e:
-            logger.error(f"Failed to extract historical pickup data: {e}")
+            logger.error(f"Failed to extract NYC demand prediction pickup data: {e}")
             raise RideDemandException(e,sys)
        
     def split_data(self, df):
@@ -173,7 +163,7 @@ class ModelTrainer:
 
             ## models for training data
             models = {"lgbm": LGBMRegressor,
-                    #"xgboost": XGBRegressor,
+                    "xgboost": XGBRegressor,
                     #"random_forest": RandomForestRegressor,
                     #'catboost': CatBoostRegressor
                     }
@@ -186,7 +176,7 @@ class ModelTrainer:
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
                                             param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=50)
+                                            n_trials=20)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
