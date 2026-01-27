@@ -564,7 +564,7 @@ class Inference:
                   logger.error(f"unable to load the model from hopsworks, {e}")
                   raise RideDemandException(e, sys)
 
-    def prepare_and_predict(self, model, final_df, inference_dir):
+    def prepare_and_predict(self, model, final_df):
         try:
             #Definining the EXACT feature list used during training
             final_features = ['pickup_month', 'city_congestion_index', 'zone_congestion_index', 
@@ -616,8 +616,7 @@ class Inference:
             logger.info('Prediction completed!')
 
             #save result to directory
-            store = f"{inference_dir}/prediction.csv"
-            results.to_csv(store, index=False)
+            results.to_csv(self.config.predictions_output_path, index=False)
 
             return results
         
