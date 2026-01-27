@@ -62,3 +62,29 @@ class InferencePipeline:
         except Exception as e:
             logger.error(f'Unable to initiate model training, {e}')
             raise RideDemandException(e,sys)
+
+
+pred = Inference()
+weather_df = pred.get_nyc_prediction_weather_data()
+pred_df = pred.engineer_temporal_prediction_features(weather_df)
+hist_df = pred.extract_historical_pickup_data()
+#dt = hist_df.copy()
+
+unique_pulocationids = pd.DataFrame({'pulocationid': hist_df.pulocationid.unique()})
+pred_df = pd.merge(unique_pulocationids, pred_df, how='cross')
+pred_df = pred.get_zone_speeds(pred_df)
+pred_df = pred.congestion_features(pred_df)
+
+hist_dfs = pred.citywide_hourly_demand(hist_df)
+hist_dfs = pred.generate_neighbor_features(hist_dfs)
+
+df = pred.engineer_autoregressive_signals(hist_dfs, pred_df)
+df2 = pred.final_data(df)
+
+model = pred.download_model_and_load()
+storage_dir = '/content/drive/MyDrive/DL'
+prediction = pred.prepare_and_predict(model, df2, storage_dir)
+pred.push_prediction_to_feature_store(prediction, hist_df)
+
+
+prediction.head()

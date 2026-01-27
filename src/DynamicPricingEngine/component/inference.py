@@ -63,23 +63,23 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 
 load_dotenv()
 
-#from src.DynamicPricingEngine.logger.logger import logger
-#from src.DynamicPricingEngine.exception.customexception import RideDemandException
-#from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
-#from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
+from src.DynamicPricingEngine.logger.logger import logger
+from src.DynamicPricingEngine.exception.customexception import RideDemandException
+from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
+from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
 
 class Inference:
-    def __init__(self):
+    def __init__(self, config:InferenceConfig):
         try:
-            #self.config = config
-            self.api_key = API_KEY
-            self.hopsworks_api = HOPSWORKS_API_KEY
+            self.config = config
+            self.weather_api_key = os.getenv('API_KEY')
+            self.hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
             self.ny_tz = ZoneInfo("America/New_York")
             self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.hopsworks_api)
 
         #Cache neighbor dictionary
             self._neighbor_dict = None
-            self._neighbor_cache_path = os.path.join(shapefile_dir, "neighbors.pkl")
+            self._neighbor_cache_path = os.path.join(self.config.shapefile_dir, "neighbors.pkl")
 
         except Exception as e:
             print("Error initializing Inference Pipeline", e)
@@ -93,13 +93,14 @@ class Inference:
             try:
                 with open(self._neighbor_cache_path, "rb") as f:
                     _neighbor_dict = pickle.load(f)
-                print("Loaded neighbor dictionary from cache")
+                logger.info("Loaded neighbor dictionary from cache")
                 return _neighbor_dict
             except Exception as e:
-                print(f"Failed to load neighbor cache: {e}")
+                logger.error(f"Failed to load neighbor cache: {e}")
 
         print('loading neighbor feature in _get_neighbor dict')
-        zones_gdf = load_shapefile_from_zipfile(taxi_zone_shapefile_url,shapefile_dir)
+        zones_gdf = load_shapefile_from_zipfile(self.config.taxi_zone_shapefile_url,
+                                                self.config.shapefile_dir)
         
         if zones_gdf is None:
             print("Failed to acquire shapefile after all retries.")
@@ -116,21 +117,21 @@ class Inference:
                                 .apply(lambda s: sorted(list(set(s))))
                                 .to_dict())
         try:
-            os.makedirs(shapefile_dir, exist_ok=True)
+            os.makedirs(self.config.shapefile_dir, exist_ok=True)
             with open(self._neighbor_cache_path, "wb") as f:
                 pickle.dump(_neighbor_dict, f)
 
         except Exception as e:
-            print(f"Failed to persist neighbor cache: {e}")
+            logger.error(f"Failed to persist neighbor cache: {e}")
 
-        print("neighbor dict retrieved successfully")
+        logger.info("neighbor dict retrieved successfully")
         return _neighbor_dict
 
     def get_nyc_prediction_weather_data(self) -> pd.DataFrame:
         try:
-            api_key = API_KEY
+            api_key = self.weather_api_key
             location = "New York, NY, United States"
-            base_url = weather_data_url
+            base_url = self.config.weather_data_url
 
             params = {
                 "unitGroup": "us",
@@ -140,7 +141,7 @@ class Inference:
             }
 
             url = f"{base_url}/{location}/today"
-            print(f"Fetching data for: {(datetime.now(self.ny_tz)+timedelta(hours=1)).strftime('%Y-%m-%d %H')}:00:00")
+            logger.info(f"Fetching data for: {(datetime.now(self.ny_tz)+timedelta(hours=1)).strftime('%Y-%m-%d %H')}:00:00")
 
             response = requests.get(url, params=params)
             response.raise_for_status()
@@ -163,12 +164,12 @@ class Inference:
             # Localizing to UTC before flooring to make it timezone-aware
             df_hours['datetime'] = pd.to_datetime(today_date + ' ' + df_hours['datetime']).dt.tz_localize('UTC').dt.floor('H') + timedelta(hours=1)
 
-            print(f"Successfully retrieved weather data.")
+            logger.info(f"Successfully retrieved weather data.")
             return df_hours
 
         except Exception as e:
-            print(f"Failed to extract weather data: {e}")
-            raise e    
+            logger.error(f"Failed to extract weather data: {e}")
+            raise RideDemandException(e,sys)    
         
 
     def engineer_temporal_prediction_features(self, weather_df: pd.DataFrame)-> pd.DataFrame:
@@ -181,12 +182,12 @@ class Inference:
             weather_df['is_night_hour'] = (~weather_df['pickup_hour'].between(7, 20)).astype(int)
             weather_df.rename(columns={'datetime':'bin'}, inplace=True)
             
-            print("Temporal Feature for prediction generated successfully.")
+            logger.error("Temporal Feature for prediction generated successfully.")
             return weather_df
 
         except Exception as e:
-            print(f"failed to engineer temporal features for prediction data {e}")
-            raise e
+            logger.error(f"failed to engineer temporal features for prediction data {e}")
+            raise RideDemandException(e,sys)
 
     def extract_historical_pickup_data(self) -> pd.DataFrame:
         try:
@@ -205,7 +206,7 @@ class Inference:
 
             try:
               prediction_fg = fs.get_feature_group(
-                  name="demand_predictions",
+                  name="demandpred",
                   version=1)
               
               if prediction_fg is None:
@@ -219,7 +220,7 @@ class Inference:
                 raise ValueError("Recent data empty, falling back to 1-year history.")
                      
             except Exception as e:
-              print(f"Switching to fallback logic: {e}")
+              logger.info(f"Switching to fallback logic: {e}")
 
               fg = fs.get_feature_group(
                   name = 'nycdemandprediction',
@@ -236,12 +237,12 @@ class Inference:
               historical_df = query.read()
               
             historical_df['bin']= historical_df['bin'].apply(lambda x: pd.to_datetime(x) + relativedelta(months=12))
-            print(f"Successfully retrieved {len(historical_df)} rows for window: {fh_start} to {fh_end}")
+            logger.info(f"Successfully retrieved {len(historical_df)} rows for window: {fh_start} to {fh_end}")
             return historical_df
 
         except Exception as e:
-            print(f"Failed to extract historical pickup data: {e}")
-            raise e
+            logger.error(f"Failed to extract historical pickup data: {e}")
+            raise RideDemandException(e,sys)
 
     def citywide_hourly_demand(self, df: pd.DataFrame) -> pd.DataFrame:
       try:
@@ -261,8 +262,8 @@ class Inference:
           return df
 
       except Exception as e:
-          print("Unable to engineer citywide hourly demand features")
-          raise e
+          logger.error("Unable to engineer citywide hourly demand features")
+          raise RideDemandException(e,sys)
 
     def generate_neighbor_features(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
@@ -316,23 +317,23 @@ class Inference:
 
             return df
         except Exception as e:
-            print("Unable to generate neighbor features", e)
-            raise e
+            logger.error("Unable to generate neighbor features", e)
+            raise RideDemandException(e,sys)
 
     def get_zone_speeds(self, df):
         try:    
             # Load the official NYC Taxi Zone lookup table
-            app_token = NYC_OPEN_DATA_APP_TOKEN
+            app_token = self.NYC_OPEN_DATA_APP_TOKEN
             client = Socrata("data.cityofnewyork.us", app_token=app_token) # App Token is better if you have one
             
             # Get the most recent 2,000 speed records in one go
-            print('loading the dataset')
+            logger.info('loading the dataset')
             results = client.get("i4gi-tjb9", limit=2000, order="data_as_of DESC")
-            print('data successfully downloaded from socatrated')
+            logger.info('data successfully downloaded from socatrated')
             speed_data = pd.DataFrame.from_records(results)
             speed_data['speed'] = pd.to_numeric(speed_data['speed'])
             
-            zone_df =download_csv_from_web(zone_lookup_url)
+            zone_df =download_csv_from_web(self.config.zone_lookup_url)
             #Create a dictionary of Borough Averages as a backup
             borough_map = speed_data.groupby('borough')['speed'].mean().to_dict()
 
@@ -363,12 +364,12 @@ class Inference:
                 except Exception as e:
                     raise e
                 
-            df['zone_avg_speed'] = pred_df.apply(fast_map, axis=1).round(2)
+            df['zone_avg_speed'] = df.apply(fast_map, axis=1).round(2)
 
             return df
         
         except Exception as e:
-            raise e
+            raise RideDemandException(e,sys)
 
     def congestion_features(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
@@ -402,8 +403,8 @@ class Inference:
             return df
 
         except Exception as e:
-            print("Unable to generate zone-level features")
-            raise e
+            logger.error("Unable to generate zone-level features")
+            raise RideDemandException(e,sys)
     
     def engineer_autoregressive_signals(self, hist_df: pd.DataFrame, 
                                         pred_df:pd.DataFrame) -> pd.DataFrame:
@@ -444,8 +445,6 @@ class Inference:
             # Concatenate historical and prediction data
             df_final = pd.concat([hist_df, pred_df], axis = 0, ignore_index=True)
 
-           # print("after_ concat df", df_final.shape)
-
             #Sort the combined DataFrame for accurate lag calculation
             pdf = df_final.sort_values(['pulocationid', 'bin'])
 
@@ -472,7 +471,6 @@ class Inference:
 
             pdf.fillna(0, inplace=True)
             df = df_final.merge(pdf, on=['pulocationid', 'bin'], how='left', suffixes=('', '_y'))
-          #  print('after autoreg df', df.shape)
             
             # Dropping redundant columns from the merge
             cols_to_drop = [c for c in df.columns if c.endswith('_y')]
@@ -481,8 +479,8 @@ class Inference:
             return df
 
         except Exception as e:
-            print("Failed to generate multi-output autoregressive features")
-            raise e
+            logger.error("Failed to generate multi-output autoregressive features")
+            raise RideDemandException(e,sys)
             
     def final_data(self, df):
         try:
@@ -515,8 +513,8 @@ class Inference:
             return df_filtered
         
         except Exception as e:
-            print()
-            raise e
+            logger.error("failed to process data")
+            raise RideDemandException(e,sys)
 
     def download_model_and_load(self):
     # Attempt the connection/download up to 3 times
