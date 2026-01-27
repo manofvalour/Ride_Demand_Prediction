@@ -230,3 +230,23 @@ class ModelTrainer:
         except Exception as e:
             logger.error(f'Failed to save the Best model to the model artifact store')
             raise RideDemandException(e,sys)
+        
+
+    def initiate_model_training(self):
+        try:
+            logger.info('Extracting the Training Data...')
+          #  logger.info('Model Training Configuration successfully loaded')
+
+            data = self.retrieve_engineered_feature()
+            train_df, val_df, test_df = self.split_data(data)
+            model, model_metric, x_test, y_test = self.model_training_and_evaluation(train_df, val_df, test_df)
+            self.save_model_to_model_store(model, model_metric, 
+                                                    x_test, y_test)
+
+            logger.info('Model Trained  and saved to model store Successfully')
+
+        except Exception as e:
+            logger.error(f'Unable to initiate model training, {e}')
+            raise RideDemandException(e,sys)
+
+

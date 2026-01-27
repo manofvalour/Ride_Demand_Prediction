@@ -15,8 +15,6 @@ if __name__=="__main__":
         logger.info(f"{STAGE_NAME} initiated")
         config = ConfigurationManager()
         inference_config = config.get_inference_config()
-
-        logger.info('Inferencing Configuration successfully loaded')
         pred_pipeline = Inference(inference_config)
         pred_pipeline.initiate_inference()
 

@@ -41,26 +41,6 @@ from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipf
         
     #    return v
 
-import os, sys
-import numpy as np
-import pandas as pd
-from pydantic import BaseModel, field_validator
-import requests
-from dotenv import load_dotenv
-import hopsworks
-from dateutil.relativedelta import relativedelta
-from datetime import timedelta, datetime
-from zoneinfo import ZoneInfo
-from hsfs.feature import Feature
-import zipfile
-import io
-import geopandas as gpd
-import pickle
-from sodapy import Socrata
-import joblib
-import time
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, retry_if_exception_message
-
 load_dotenv()
 
 from src.DynamicPricingEngine.logger.logger import logger
@@ -319,57 +299,59 @@ class Inference:
         except Exception as e:
             logger.error("Unable to generate neighbor features", e)
             raise RideDemandException(e,sys)
+        
 
     def get_zone_speeds(self, df):
-        try:    
-            # Load the official NYC Taxi Zone lookup table
-            app_token = self.NYC_OPEN_DATA_APP_TOKEN
-            client = Socrata("data.cityofnewyork.us", app_token=app_token) # App Token is better if you have one
+        try:
+            app_token = os.getenv('NYC_OPEN_DATA_APP_TOKEN')
+
+            # Using a context manager ensures the session closes properly
+            with Socrata("data.cityofnewyork.us", app_token) as client:
+                logger.info('Loading speed dataset...')
+                results = client.get("i4gi-tjb9", limit=2000, order="data_as_of DESC")
+                speed_data = pd.DataFrame.from_records(results)
             
-            # Get the most recent 2,000 speed records in one go
-            logger.info('loading the dataset')
-            results = client.get("i4gi-tjb9", limit=2000, order="data_as_of DESC")
-            logger.info('data successfully downloaded from socatrated')
-            speed_data = pd.DataFrame.from_records(results)
-            speed_data['speed'] = pd.to_numeric(speed_data['speed'])
-            
-            zone_df =download_csv_from_web(self.config.zone_lookup_url)
-            #Create a dictionary of Borough Averages as a backup
+            # Pre-process speed data once
+            speed_data['speed'] = pd.to_numeric(speed_data['speed'], errors='coerce')
             borough_map = speed_data.groupby('borough')['speed'].mean().to_dict()
 
-            # 4. MAP DATA: Match Zone IDs to speeds in memory (No API calls inside this loop!)
-            def fast_map(row):
-                try:
-                    # Get the zone name for the ID
-                    
-                    z_info = zone_df[zone_df['LocationID'] == row['pulocationid']]
-                    if z_info.empty: return None
-                    
-                    z_name_raw = z_info.iloc[0]['Zone']
-                    bor = z_info.iloc[0]['Borough']
-                    
-                    # Ensure z_name is a string before using it in str.contains
-                    if pd.isna(z_name_raw):
-                        z_name = "" # Use empty string for pattern if NaN
-                    else:
-                        z_name = str(z_name_raw)
+            logger.info('Downloading zone lookup table...')
+            zone_df = download_csv_from_web(self.config.zone_lookup_table_url)
+            
+            # First, attach Zone/Borough info to your main dataframe
+            df = df.merge(
+                zone_df[['LocationID', 'Zone', 'Borough']], 
+                left_on='pulocationid', 
+                right_on='LocationID', 
+                how='left'
+            )
 
-                    # Check if any live segment name contains the zone name
-                    matched_speeds = speed_data[speed_data['link_name'].str.contains(z_name, case=False, na=False)]
-                    
-                    if not matched_speeds.empty:
-                        return matched_speeds['speed'].mean()
-                    return borough_map.get(bor, None) # Use borough average if specific zone isn't found
-                
-                except Exception as e:
-                    raise e
-                
-            df['zone_avg_speed'] = df.apply(fast_map, axis=1).round(2)
+            # Defining the localized mapping logic
+            def calculate_speed(row):
+                z_name = str(row['Zone']) if pd.notna(row['Zone']) else ""
+                bor = row['Borough']
 
+                if z_name:
+                    # Filter speed_data for matching link names
+                    matched = speed_data[speed_data['link_name'].str.contains(z_name, case=False, na=False)]
+                    if not matched.empty:
+                        return matched['speed'].mean()
+                
+                # Fallback to borough average if no specific zone match
+                return borough_map.get(bor)
+
+            logger.info('Calculating zone speeds...')
+            df['zone_avg_speed'] = df.apply(calculate_speed, axis=1)
+
+            # Cleanup extra columns from merge if necessary
+            df.drop(columns=['LocationID', 'Zone', 'Borough'], inplace=True)
+            
             return df
-        
+
         except Exception as e:
+            logger.error(f"Error in get_zone_speeds: {e}")
             raise RideDemandException(e,sys)
+        
 
     def congestion_features(self, df: pd.DataFrame) -> pd.DataFrame:
         try:
@@ -500,7 +482,12 @@ class Inference:
             df = df.drop(columns=to_drop, axis=1, errors='ignore')
 
             ny_tz = ZoneInfo("America/New_York")    
-            target_time = datetime.now(ny_tz).replace(tzinfo=None)+ timedelta(hours=1)
+            target_time = datetime.now(ny_tz).replace(tzinfo=None)
+            
+            if target_time.minute < 40:
+              target_time = target_time.replace(hour=target_time.hour)
+            else:
+              target_time = target_time.replace(hour=target_time.hour + 1)
             
             # Round to the top of the hour (e.g., 10:45 -> 10:00)
             target_hour = target_time.replace(minute=0, second=0, microsecond=0)
@@ -695,3 +682,34 @@ class Inference:
         except Exception as e:
             logger.error('unable to store the dataset to feature store')
             raise  RideDemandException(e,sys)
+
+
+    def initiate_inference(self)-> pd.DataFrame:
+        try:
+
+            logger.info('Extracting the prediction Data...')
+
+            weather_df = self.get_nyc_prediction_weather_data()
+            pred_df = self.engineer_temporal_prediction_features(weather_df)
+            hist_df = self.extract_historical_pickup_data()
+
+            unique_pulocationids = pd.DataFrame({'pulocationid': hist_df.pulocationid.unique()})
+            pred_df = pd.merge(unique_pulocationids, pred_df, how='cross')
+            pred_df = self.get_zone_speeds(pred_df)
+            pred_df = self.congestion_features(pred_df)
+
+            hist_dfs = self.citywide_hourly_demand(hist_df)
+            hist_dfs = self.generate_neighbor_features(hist_dfs)
+
+            df = self.engineer_autoregressive_signals(hist_dfs, pred_df)
+            df2 = self.final_data(df)
+
+            logger.info('Inference data created Successfully')
+
+            model = self.download_model_and_load()
+            prediction = self.prepare_and_predict(model, df2)
+            self.push_prediction_to_feature_store(prediction, hist_df)
+
+        except Exception as e:
+            logger.error(f'Unable to initiate model training, {e}')
+            raise RideDemandException(e,sys)
