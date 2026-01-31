@@ -176,19 +176,26 @@ class Inference:
         except Exception as e:
             logger.error(f"failed to engineer temporal features for prediction data {e}")
             raise RideDemandException(e,sys)
-
+    
     def extract_historical_pickup_data(self) -> pd.DataFrame:
         try:
-            final_features = ['pickup_month', 'humidity', 'precip','windspeed', 'feelslike', 'visibility', 
-                                'pickup_hour', 'day_of_week','is_rush_hour', 'is_night_hour', 
+            final_features = ['pickup_month', 'humidity', 'precip','windspeed', 'feelslike', 'visibility',
+                                'pickup_hour', 'day_of_week','is_rush_hour', 'is_night_hour',
                                 'pulocationid', 'bin', 'target_yellow', 'target_green', 'target_hvfhv',
                               'zone_congestion_index', "city_congestion_index"]
-                                
+
             fs = self.project.get_feature_store()
 
-            end_date_utc = datetime.now(self.ny_tz).replace(minute=0, second=0, microsecond=0) + relativedelta(hours=1)
+            target_time = datetime.now(self.ny_tz)
+            target_time = target_time.replace(tzinfo=None)
+
+            if target_time.minute < 35:
+              end_date_utc = target_time.replace(minute=0, second=0, microsecond=0)
+            else:
+              end_date_utc = target_time.replace(minute=0, second=0, microsecond=0) + relativedelta(hours=1)
+
             start_date_utc = (end_date_utc - relativedelta(hours=24))
-           
+
             fh_start = start_date_utc.strftime('%Y-%m-%d %H:%M:%S')
             fh_end = end_date_utc.strftime('%Y-%m-%d %H:%M:%S')
 
@@ -196,41 +203,40 @@ class Inference:
               prediction_fg = fs.get_feature_group(
                   name="demandpred",
                   version=1)
-              
+
               if prediction_fg is None:
                 raise ValueError("Feature Group is empty, falling back to 1-year history.")
-              
+
               query = prediction_fg.select(final_features).filter(
                   (prediction_fg.get_feature("bin") >= fh_start) & (prediction_fg.get_feature("bin") < fh_end))
-              
+
               historical_df = query.read()
               if historical_df.empty:
                 raise ValueError("Recent data empty, falling back to 1-year history.")
-                     
+
             except Exception as e:
-              logger.info(f"Switching to fallback logic: {e}")
+                logger.info(f"Switching to fallback logic: {e}")
 
-              fg = fs.get_feature_group(
-                  name = 'nycdemandprediction',
-                  version=1,
-              )
-              fh_start = start_date_utc - relativedelta(months=12)
-              fh_start = fh_start.strftime('%Y-%m-%d %H:%M:%S')
-              
-              fh_end = end_date_utc - relativedelta(months=12)
-              fh_end = fh_end.strftime('%Y-%m-%d %H:%M:%S')
+                fg = fs.get_feature_group(
+                    name = 'nycdemandprediction',
+                    version=1,
+                )
+                fh_start = start_date_utc - relativedelta(months=12)
+                fh_end = fh_start + relativedelta(hours=24)
 
-              query = fg.select(final_features).filter(
-                  (fg.bin >=fh_start) & (fg.bin < fh_end))
-              historical_df = query.read()
-              
-            historical_df['bin']= historical_df['bin'].apply(lambda x: pd.to_datetime(x) + relativedelta(months=12))
+                query = fg.select(final_features).filter(
+                    (fg.get_feature('bin') >=fh_start) & (fg.get_feature('bin') < fh_end))
+                historical_df = query.read()
+
+            historical_df['bin'] = pd.to_datetime(historical_df['bin']) + pd.DateOffset(years=1)
             logger.info(f"Successfully retrieved {len(historical_df)} rows for window: {fh_start} to {fh_end}")
+
             return historical_df
 
         except Exception as e:
             logger.error(f"Failed to extract historical pickup data: {e}")
             raise RideDemandException(e,sys)
+
 
     def citywide_hourly_demand(self, df: pd.DataFrame) -> pd.DataFrame:
       try:
@@ -479,9 +485,8 @@ class Inference:
                                  'neighbor_pickups_target_hvfhv', 'zone_avg_speed','city_avg_speed']
 
             df = df.drop(columns=to_drop, axis=1, errors='ignore')
-
-            ny_tz = ZoneInfo("America/New_York")    
-            target_time = datetime.now(ny_tz).replace(tzinfo=None)
+    
+            target_time = datetime.now(self.ny_tz).replace(tzinfo=None)
             
             if target_time.minute < 40:
               target_time = target_time.replace(hour=target_time.hour)
@@ -661,6 +666,9 @@ class Inference:
                 pred.drop(columns=['index'], inplace=True)
 
             # Ensure 'bin' is a column and create 'bin_str' from it.
+            if 'bin' in hist_data.columns:
+                hist_data['bin_str'] = hist_data['bin'].astype(str)
+                
             if 'bin' in pred.columns:
                 pred['bin_str'] = pred['bin'].astype(str)
             else:
@@ -678,7 +686,7 @@ class Inference:
 
             if prediction_fg is not None:
               ## inserting new data in the feature group created above
-              prediction_fg.insert(pred, storage = 'offline', write_options = {'wait_for_job': False, 'use_spark':True})
+              prediction_fg.insert(pred, write_options = {'wait_for_job': False, 'use_spark':True})
 
             else:
               prediction_fg = fs.create_feature_group(
@@ -692,8 +700,8 @@ class Inference:
               data = pd.concat([pred, hist_data], axis=0)
   
               ## inserting new data in the feature group created above
-              prediction_fg.insert(data, storage = 'offline', write_options = {'wait_for_job': False, 'use_spark':True})
-            #prediction_fg.delete()
+              prediction_fg.insert(data, write_options = {'wait_for_job': False, 'use_spark':True})
+    
             logger.info('data successfully added to hopsworks feature group')
 
         except Exception as e:

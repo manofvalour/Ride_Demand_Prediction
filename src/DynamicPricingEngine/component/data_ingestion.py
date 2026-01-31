@@ -35,8 +35,8 @@ class DataIngestion:
             start_date= end_date - timedelta(days=days-1)
 
             self.config = config
-            #start_date = start_date - relativedelta(months=1)  #1
-            #end_date = end_date - relativedelta(months=1) #2
+            start_date = start_date - relativedelta(months=1)  #1
+            end_date = end_date - relativedelta(months=1) #2
 
             self.start_date = start_date.strftime('%Y-%m-%d')
             self.end_date = end_date.strftime('%Y-%m-%d')
