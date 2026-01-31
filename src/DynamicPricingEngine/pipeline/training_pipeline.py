@@ -1,6 +1,3 @@
-import os, sys
-import pandas as pd
-
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.config.configuration import ConfigurationManager

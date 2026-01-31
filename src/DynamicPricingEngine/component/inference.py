@@ -16,6 +16,7 @@ import pickle
 from sodapy import Socrata
 import joblib
 import time
+import json
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, retry_if_exception_message
 
 load_dotenv()
@@ -121,7 +122,14 @@ class Inference:
             }
 
             url = f"{base_url}/{location}/today"
-            logger.info(f"Fetching data for: {(datetime.now(self.ny_tz)+timedelta(hours=1)).strftime('%Y-%m-%d %H')}:00:00")
+            target_time = datetime.now(self.ny_tz)
+
+            if target_time.minute < 35:
+               logger.info(f"Fetching data for: {(datetime.now(self.ny_tz)).strftime('%Y-%m-%d %H')}:00:00")
+          
+            else:
+              logger.info(f"Fetching data for: {(datetime.now(self.ny_tz)+timedelta(hours=1)).strftime('%Y-%m-%d %H')}:00:00")
+            
 
             response = requests.get(url, params=params)
             response.raise_for_status()
@@ -139,7 +147,7 @@ class Inference:
             df_hours = df_hours[cols]
 
             #Ensure datetime includes today's date so localization works correctly
-            today_date = datetime.now().strftime('%Y-%m-%d')
+            today_date = datetime.now(self.ny_tz).strftime('%Y-%m-%d')
 
             # Localizing to UTC before flooring to make it timezone-aware
             df_hours['datetime'] = pd.to_datetime(today_date + ' ' + df_hours['datetime']).dt.tz_localize('UTC').dt.floor('H') + timedelta(hours=1)
@@ -427,29 +435,20 @@ class Inference:
             # Concatenate historical and prediction data
             df_final = pd.concat([hist_df, pred_df], axis = 0, ignore_index=True)
 
+            df_final.drop_duplicates(['bin',"pulocationid"], inplace=True)
+
             #Sort the combined DataFrame for accurate lag calculation
             pdf = df_final.sort_values(['pulocationid', 'bin'])
 
-            def make_lags(group):
-                for s in services:
-                    #Zone-level Lags (1h and 24h)
-                    for l in [1, 24]:
-                        group[f'{s}_lag_{l}h'] = group[s].shift(l)
+            for s in services:
+                for l in [1, 24]:
+                    pdf[f'{s}_lag_{l}h'] = pdf.groupby('pulocationid')[s].shift(l)
 
-                for c in city:
-                    #city-level Lags (1h and 24h)
-                    for l in [1]:
-                        group[f'{c}_lag_{l}h'] = group[c].shift(l)
-                
-                for n in neighbors:
-                    #Neighbor Lags (1h and 24h)
-                    for l in [1]:
-                        group[f'{n}_lag_{l}h'] = group[n].shift(l)
-                
-                return group
+            for c in city:
+                pdf[f'{c}_lag_1h'] = pdf.groupby('pulocationid')[c].shift(1)
 
-            # Apply lags per Zone
-            pdf = pdf.groupby('pulocationid', group_keys=False).apply(make_lags)
+            for n in neighbors:
+                pdf[f'{n}_lag_1h'] = pdf.groupby('pulocationid')[n].shift(1)
 
             pdf.fillna(0, inplace=True)
             df = df_final.merge(pdf, on=['pulocationid', 'bin'], how='left', suffixes=('', '_y'))
@@ -599,6 +598,24 @@ class Inference:
             results = results[features_to_save]
             results= results.reset_index(drop=False)
             results = pd.concat([results, pred], axis=1)
+            results['bin'] = results['bin'].astype(str)
+            results = results.set_index('pulocationid')
+            predictions_dict = results.to_dict(orient='index')
+
+            final_output = {
+                "metadata": {
+                    "generated_at": datetime.now().isoformat(),
+                    "total_zones": len(results),
+                    "prediction_window": results['bin'].iloc[0] if 'bin' in results.columns else "Unknown"
+                },
+                "predictions": predictions_dict
+            }
+
+            # Saving the JSON file
+            with open(self.config.predictions_output_path, 'w') as f:
+                json.dump(final_output, f, indent=4)
+            
+            logger.info(f"Successfully saved to {self.config.predictions_output_path}")
 
             logger.info('Prediction completed!')
 
