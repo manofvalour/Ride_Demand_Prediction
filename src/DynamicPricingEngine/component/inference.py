@@ -12,41 +12,6 @@ from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
 
-"""" Things to Do
-- input from the users (datetime (time rounded to hour) and PULocation ID(between 1 and 263))
-- engineer the needed features (hour, day_of_the_month, month, is_holiday, is_special_event, 
-                                season of the year, day_of_the_week, pickup_lag1, is_night_hour, 
-                                is_rush_hour, pickup_lag24, pickup_year, 
-                                pickup_roll_mean24, pickup_roll_std_24, city_avg_speed, is_payday,
-                                zone_avg_speed, zone_congestion_index, city_congestion_index,
-                                city_pickup_lag1, city_pickup_lag24, city_pickups, neighbor_pickups_sum,
-                                neighbor_pickup_lag1, neighbor_pickup_lag24, is_rush_hour, is_night_hour,
-                                temp, dew, humidity, precip, snow, windspeed, feelslike, snow_depth,
-                                visibility)
-- push_transformed_data_to_feature_store
-- ingest_the_data_and model_from_feature_store_and_model_store
-- predict and return the output
-
-       final_features = [
-                'temp',
-                'humidity',
-                'pickup_hour',
-                'is_rush_hour',
-                'city_avg_speed',
-                'zone_avg_speed',
-                'zone_congestion_index',
-                'pickups_lag_1h',
-                'pulocationid',
-                'pickups_lag_24h',
-                'city_pickups_lag_1h',
-                'neighbor_pickups_lag_1h'
-            ]
-
-            # 2. Adding the target variable to the list for the final dataframe
-            target_column = 'pickups'
-
-"""
-
 class PredictionRequest(BaseModel):
     datetime: str
     pulocationid: int
