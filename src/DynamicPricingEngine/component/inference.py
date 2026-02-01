@@ -604,12 +604,11 @@ class Inference:
             results= results.reset_index(drop=False)
             results = pd.concat([results, pred], axis=1)
             results['bin'] = results['bin'].astype(str)
-            results = results.set_index('pulocationid')
-            predictions_dict = results.to_dict(orient='index')
+            predictions_dict = results.set_index('pulocationid').to_dict(orient='index')
 
             final_output = {
                 "metadata": {
-                    "generated_at": datetime.now().isoformat(),
+                    "generated_at": datetime.now(self.ny_tz).isoformat(),
                     "total_zones": len(results),
                     "prediction_window": results['bin'].iloc[0] if 'bin' in results.columns else "Unknown"
                 },
