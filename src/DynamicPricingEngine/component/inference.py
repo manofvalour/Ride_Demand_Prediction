@@ -83,6 +83,8 @@ class Inference:
         zones_gdf = load_shapefile_from_zipfile(self.config.taxi_zone_shapefile_url,
                                                 self.config.shapefile_dir)
         
+        zones_gdf.to_file(self.config.geojson_output_path, driver="GeoJSON")
+        
         if zones_gdf is None:
             print("Failed to acquire shapefile after all retries.")
             return e
@@ -108,6 +110,7 @@ class Inference:
         logger.info("neighbor dict retrieved successfully")
         return _neighbor_dict
 
+    
     def get_nyc_prediction_weather_data(self) -> pd.DataFrame:
         try:
             api_key = self.weather_api_key

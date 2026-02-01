@@ -49,6 +49,7 @@ class InferenceConfig:
     shapefile_dir: Path
     taxi_zone_shapefile_url: Path
     zone_lookup_table_url: Path
+    geojson_output_path: Path
 
 
 

@@ -257,3 +257,19 @@ def download_csv_from_web(url)-> pd.DataFrame:
         logger.error("Can't access the content for the url")
         raise RideDemandException(e,sys)
 
+
+import geopandas as gpd
+
+def convert_shapefile_to_geojson(shapefile_path: str, geojson_path: str) -> None:
+    """
+    Converts a shapefile to GeoJSON format.
+    """
+    # Load the shapefile
+    shapefile = gpd.read_file(shapefile_path)
+    shapefile = shapefile.to_crs(epsg=4326)
+
+    # Save as GeoJSON
+    
+    shapefile.to_file(geojson_path, driver='GeoJSON')
+    logger.info(f"Shapefile converted to GeoJSON and saved at: {geojson_path}")
+

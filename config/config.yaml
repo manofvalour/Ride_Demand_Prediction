@@ -29,6 +29,7 @@ inference:
   predictions_output_path: artifacts/inference/predictions.json
   zone_lookup_url : "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
   shapfile_dir: artifacts/inference/shapefile
+  geojson_output_path: artifacts/inference/NYC_Taxi_Zones.geojson
   taxi_zone_shapefile_url: https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip
   
   

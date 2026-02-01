@@ -120,7 +120,8 @@ class ConfigurationManager:
                 weather_data_url= data_ingestion_config.weather_data_url,
                 taxi_zone_shapefile_url= config.taxi_zone_shapefile_url,
                 zone_lookup_table_url= config.zone_lookup_url,
-                shapefile_dir=config.shapfile_dir
+                shapefile_dir=config.shapfile_dir,
+                geojson_output_path=config.geojson_output_path
             )
 
             return inference_config
