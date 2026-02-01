@@ -624,9 +624,6 @@ class Inference:
 
             logger.info('Prediction completed!')
 
-            #save result to directory
-            results.to_csv(self.config.predictions_output_path, index=False)
-
             return results
         
         except Exception as e:

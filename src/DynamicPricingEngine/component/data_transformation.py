@@ -412,7 +412,7 @@ class DataTransformation:
             )
 
             ## inserting new data in the feature group created above
-            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
+            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': False, 'use_spark':True})
             
             logger.info('data successfully added to hopsworks feature group')
 

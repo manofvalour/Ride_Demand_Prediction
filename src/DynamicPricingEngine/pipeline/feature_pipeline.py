@@ -25,15 +25,15 @@ class FeaturePipeline:
             data_ingestion.save_data_to_artifact(nyc_taxi_data,nyc_weather_data)
             logger.info('Data Ingestion pipeline initiated successfully')
 
-           # logger.info('initiating data transformation')
+            logger.info('initiating data transformation')
 
-            #data_transformation_config = config.get_data_transformation_config()
-            #logger.info('Data Transformation configuration loaded successfully')
+            data_transformation_config = config.get_data_transformation_config()
+            logger.info('Data Transformation configuration loaded successfully')
             
-            #data_transformation = DataTransformation(data_transformation_config)
-            #data_transformation.initiate_feature_engineering()
+            data_transformation = DataTransformation(data_transformation_config)
+            data_transformation.initiate_feature_engineering()
 
-            #logger.info(f"Data Transformation pipeline completed")
+            logger.info(f"Data Transformation pipeline completed")
 
         except Exception as e:
             logger.error(f"Failed to initiate data transformation, {e}")
