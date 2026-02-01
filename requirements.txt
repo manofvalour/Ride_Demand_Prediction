@@ -6,7 +6,8 @@ seaborn
 flask
 dagshub
 mlflow <3
-scikit-learn
+scikit-learn==1.5.2
+catboost==1.2.7
 imbalanced-learn
 dvc
 pyyaml
@@ -32,9 +33,9 @@ hopsworks[python]
 optuna
 pydantic
 meteostat
-catboost
 optuna-integration[lightgbm]
 optuna-integration
 tenacity
+sodapy
 
 #-e .

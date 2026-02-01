@@ -17,7 +17,7 @@ load_dotenv()
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import DataTransformationConfig
-from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zip
+from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class DataTransformation:
@@ -29,18 +29,10 @@ class DataTransformation:
         self.taxi_df = dd.read_parquet(config.taxi_data_local_file_path)
         self.weather_df = dd.read_csv(config.weather_data_local_file_path)
 
-        #Ensure correct dtypes for memory optimization
-        self.taxi_df.index = self.taxi_df.index.astype('int32')
-        self.weather_df.index = self.weather_df.index.astype('int32')
-
         #Ensure datetime types
         for col in ['tpep_pickup_datetime', 'tpep_dropoff_datetime']:
             if col in self.taxi_df.columns:
                 self.taxi_df[col] = dd.to_datetime(self.taxi_df[col], errors='coerce')
-
-        # Precompute bin
-        if 'tpep_pickup_datetime' in self.taxi_df.columns:
-            self.taxi_df['bin'] = self.taxi_df['tpep_pickup_datetime'].dt.floor('60min')
 
          #Cache neighbor dictionary
         self._neighbor_dict = None
@@ -59,7 +51,7 @@ class DataTransformation:
             except Exception as e:
                 logger.warning(f"Failed to load neighbor cache: {e}")
 
-        zones_gdf = load_shapefile_from_zip(self.config.taxi_zone_shapefile_url, 
+        zones_gdf = load_shapefile_from_zipfile(self.config.taxi_zone_shapefile_url, 
                                             self.config.shapefile_dir)
         zones_gdf_left = zones_gdf.rename(columns={"LocationID": "LocationID_left"})
         zones_gdf_right = zones_gdf.rename(columns={"LocationID": "LocationID_right"})
@@ -77,43 +69,12 @@ class DataTransformation:
         return self._neighbor_dict
 
 
-    def derive_target_and_join_to_weather_feature(self) -> dd.DataFrame:
+    def merge_weather_features(self) -> dd.DataFrame:
         try:
-            taxi_df = self.taxi_df[['PULocationID', 'bin']]
-
-            # Aggregate pickups per zone-hour
-            y = (taxi_df
-                 .groupby(['PULocationID', 'bin'])
-                 .size().rename('pickups')
-                 .reset_index())
             
-            y['bin']= y['bin'].astype('datetime64[ns]')
-            y['PULocationID']= y['PULocationID'].astype('int32')
-
-            # Materialized data to Pandas to build full grid then back to Dask
-            zones = y['PULocationID'].unique().compute()
-
-            time_index = pd.date_range(y['bin'].min().compute(), 
-                                       y['bin'].max().compute(), 
-                                       freq='60min')
-            
-            grid = pd.MultiIndex.from_product([zones, time_index], 
-                                              names=['PULocationID', 
-                                                     'bin']).to_frame(index=False)
-
-            #y['PULocationID'] = y['PULocationID'].astype('int32')
-            grid['PULocationID'] = grid['PULocationID'].astype('int32')
-
-            # Align datetime precision
-            y['bin'] = y['bin'].astype('datetime64[ns]')
-            grid['bin'] = grid['bin'].astype('datetime64[ns]')
-
-            y = dd.from_pandas(grid, npartitions=4).merge(y, how='left', 
-                                                          on=['PULocationID', 'bin'])
-            y = y.fillna({'pickups': 0})
-
             # Weather alignment
             weather_df = self.weather_df
+            taxi_df = self.taxi_df
             weather_df['bin'] = dd.to_datetime(
                 weather_df['day'].astype(str) + ' ' + 
                 weather_df['datetime'].astype(str),
@@ -122,10 +83,12 @@ class DataTransformation:
             
             #Dropping the Day column
             weather_df = weather_df.drop(columns='day')
-            y.index = y.index.astype('int64')
+
+            ## making the dtype the same
+            weather_df['bin'] = weather_df['bin'].astype('datetime64[us]')
 
             # Merge target + weather and sort by PUlocationID and bin
-            df = y.merge(weather_df, on='bin', how='left').map_partitions(
+            df = taxi_df.merge(weather_df, on='bin', how='left').map_partitions(
                 lambda pdf: pdf.sort_values(['PULocationID', 'bin'])
             )
 
@@ -258,132 +221,26 @@ class DataTransformation:
             raise RideDemandException(e, sys)
 
 
-    def city_wide_congestion_features(self, df: pd.DataFrame) -> dd.DataFrame:
-        try:
-            # Select needed columns
-            taxi_df = self.taxi_df[['bin', 'tpep_pickup_datetime', 
-                                    'tpep_dropoff_datetime', 'trip_distance']]
-
-            # Compute trip duration in hours
-            taxi_df['trip_duration_hr'] = (
-                (taxi_df['tpep_dropoff_datetime'] - 
-                 taxi_df['tpep_pickup_datetime']).dt.total_seconds() / 3600
-            )
-
-            # Filter invalid trips
-            taxi_df = taxi_df[(taxi_df['trip_duration_hr'] > 0) & 
-                              (taxi_df['trip_distance'] >= 0)]
-
-            # Compute speed
-            taxi_df['MPH'] = taxi_df['trip_distance'] / taxi_df['trip_duration_hr']
-            taxi_df = taxi_df[taxi_df['MPH'].between(1, 60)]
-
-            # Compute citywide average speed per hour
-            city_speed = (
-                taxi_df.groupby('bin')['MPH']
-                .mean()
-                .reset_index()
-                .rename(columns={'MPH': 'city_avg_speed'})
-            )
-
-            # Congestion index
-            city_speed['city_congestion_index'] = city_speed['city_avg_speed'].map_partitions(
-                lambda pdf: np.where(pdf > 0, 1.0 / pdf, np.nan),
-                meta=('city_congestion_index', 'f8')
-            )
-
-            # Merge back into main df
-            df = df.merge(city_speed, on='bin', how='left')
-            return df
-
-        except Exception as e:
-            logger.error("Unable to generate city-wide features", exc_info=True)
-            raise RideDemandException(e, sys)
-
-
-    def zone_level_congestion_features(self, df: dd.DataFrame) -> dd.DataFrame:
-        try:
-            # Select needed columns
-            taxi_df = self.taxi_df[['PULocationID', 'bin', 'tpep_pickup_datetime',
-                                    'tpep_dropoff_datetime', 'trip_distance']]
-
-            # Compute trip duration in hours
-            taxi_df['trip_duration_hr'] = (
-                (taxi_df['tpep_dropoff_datetime'] 
-                 -taxi_df['tpep_pickup_datetime'])
-                 .dt.total_seconds() / 3600
-            )
-
-            # Filter invalid trips
-            taxi_df = taxi_df[(taxi_df['trip_duration_hr'] > 0) & (taxi_df['trip_distance'] >= 0)]
-
-            # Compute speed
-            taxi_df['MPH'] = taxi_df['trip_distance'] / taxi_df['trip_duration_hr']
-            taxi_df = taxi_df[taxi_df['MPH'].between(1, 60)]
-
-            # Compute zone-level average speed per hour
-            zone_speed = (
-                taxi_df.groupby(['PULocationID', 'bin'])['MPH']
-                .mean()
-                .reset_index()
-                .rename(columns={'MPH': 'zone_avg_speed'})
-            )
-
-            # Congestion index
-            zone_speed['zone_congestion_index'] = zone_speed['zone_avg_speed'].map_partitions(
-                lambda pdf: np.where(pdf > 0, 1.0 / pdf, np.nan),
-                meta=('zone_congestion_index', 'f8')
-            )
-
-            # Build full grid (zones × time) in Pandas, then convert back to Dask
-            zones = df['PULocationID'].unique().compute()
-            time_index = pd.date_range(df['bin'].min().compute(), 
-                                       df['bin'].max().compute(), freq='60min'
-                                       )
-            
-            grid = pd.MultiIndex.from_product([zones, time_index], 
-                                              names=['PULocationID', 
-                                                     'bin']).to_frame(index=False
-                                                                      )
-            
-            grid_dd = dd.from_pandas(grid, npartitions=4)
-
-            zone_speed['PULocationID']= zone_speed['PULocationID'].astype('int32')
-
-            # Merge grid with zone_speed to ensure full coverage
-            zone_speed = grid_dd.merge(zone_speed, how='left', on=['PULocationID', 'bin'])
-            zone_speed[['zone_avg_speed', 'zone_congestion_index']] = zone_speed[
-                ['zone_avg_speed', 'zone_congestion_index']
-            ].fillna(0)
-
-            #zone_speed['PULocationID']= zone_speed['PULocationID'].astype('int32')
-            # Merge back into main df
-            df = df.merge(zone_speed, on=['PULocationID', 'bin'], how='left')
-            return df
-
-        except Exception as e:
-            logger.error("Unable to generate zone-level features", exc_info=True)
-            raise RideDemandException(e, sys)
-
-
     def citywide_hourly_demand(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
-            # Aggregate citywide pickups per hour
-            city_demand = (
-                df.groupby('bin')['pickups']
-                .sum()
-                .reset_index()
-                .rename(columns={'pickups': 'city_pickups'})
-            )
-
-            # Merge back into main df
-            df = df.merge(city_demand, on='bin', how='left')
-
+            services = ['target_yellow', 'target_green', 'target_hvfhv']
+                
+            #Aggregate citywide pickups per hour
+            for s in services:
+                city_demand = (
+                    df.groupby('bin')[s]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={s: f'{s}_city_hour_pickups'})
+                )
+                # Merge back into main df
+                df = df.merge(city_demand, on='bin', how='left')
+                
             return df
 
         except Exception as e:
-            logger.error("Unable to engineer citywide hourly demand features", exc_info=True)
-            raise RideDemandException(e, sys)
+            logger.error("Unable to engineer citywide hourly demand features")
+            raise RideDemandException(e,sys)
 
 
     def generate_neighbor_features(self, df: dd.DataFrame) -> dd.DataFrame:
@@ -406,81 +263,109 @@ class DataTransformation:
             neighbor_ddf = dd.from_pandas(neighbor_pdf, npartitions=1)
 
             # Prepare neighbor pickups
-            df_neighbors = df[['PULocationID', 'bin', 'pickups']].rename(
-                columns={'PULocationID': 'neighbor_id', 'pickups': 'neighbor_pickups'}
-            )
+            # Create a map for the new column names in df_neighbors
+            rename_map = {
+                'PULocationID': 'neighbor_id', # This is needed for the merge key
+                'target_yellow': 'yellow_neighbor_pickups',
+                'target_green': 'green_neighbor_pickups',
+                'target_hvfhv': 'hvfhv_neighbor_pickups'
+            }
+            
+            # Select original columns from df for df_neighbors
+            df_neighbors_orig_cols = ['PULocationID', 'bin', 'target_yellow', 
+                                      'target_green', 'target_hvfhv']
+            # Apply select and rename in sequence to get df_neighbors
+            df_neighbors = df[df_neighbors_orig_cols].rename(columns=rename_map)
 
             merged = neighbor_ddf.merge(df_neighbors, on='neighbor_id', how='left')
+            # List of the *actual* column names in 'merged' that represent neighbor pickups
+            neighbor_pickup_cols_in_merged = [
+                'yellow_neighbor_pickups',
+                'green_neighbor_pickups',
+                'hvfhv_neighbor_pickups'
+            ]
 
-            neighbor_demand_df = (
-                merged.groupby(['PULocationID', 'bin'])['neighbor_pickups']
-                .sum()
-                .reset_index()
-                .rename(columns={'neighbor_pickups': 'neighbor_pickups_sum'})
-            )
+            # Corresponding desired final column names in the main df
+            final_output_col_names = [
+                'neighbor_pickups_target_yellow',
+                'neighbor_pickups_target_green',
+                'neighbor_pickups_target_hvfhv'
+            ]
 
-           # neighbor_demand_df['neighbor_pickups_sum'] = neighbor_demand_df['neighbor_pickups_sum'].fillna(-1)
+            for i, merged_col_name in enumerate(neighbor_pickup_cols_in_merged):
+                output_col_name = final_output_col_names[i]
 
-            df = df.merge(neighbor_demand_df, on=['PULocationID', 'bin'], how='left')
-            df = df.rename(columns={'neighbor_pickups_sum_y':'neighbor_pickups_sum'})
+                neighbor_demand_df = (
+                    merged.groupby(['PULocationID', 'bin'])[merged_col_name]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={merged_col_name: output_col_name})
+                )
 
-            df['neighbor_pickups_sum'] = df['neighbor_pickups_sum'].fillna(0)
+                df = df.merge(neighbor_demand_df, on=['PULocationID', 'bin'], 
+                              how='left', suffixes=("", '_y'))
+                df[output_col_name] = df[output_col_name].fillna(0)
 
             return df
-
         except Exception as e:
-            logger.error("Unable to generate neighbor features", exc_info=True)
-            raise RideDemandException(e, sys)
+            logger.error("Unable to generate neighbor features", e)
+            raise RideDemandException(e,sys)
         
     def engineer_autoregressive_signals(self, df: dd.DataFrame) -> dd.DataFrame:
         try:
-            ## Define a Pandas function to apply per-partition
-            pdf= df[['PULocationID', 'bin', 'pickups', 
-                     'city_pickups', 'neighbor_pickups_sum']].compute()
+            # Define the three targets we are tracking
+            services = ['target_yellow', 'target_green', 'target_hvfhv']
+            neighbors = [
+                'neighbor_pickups_target_yellow',
+                'neighbor_pickups_target_green',
+                'neighbor_pickups_target_hvfhv'
+            ]
+            city = ['target_yellow_city_hour_pickups', 'target_green_city_hour_pickups', 
+                    'target_hvfhv_city_hour_pickups',]
 
-            def make_lags(group, col='pickups'):
-
-                ## for lag features
-                for l in [1,24]:
-                    group[f'{col}_lag_{l}h'] = group[col].shift(l)
-
-                ## for rolling mean and std for zonelevel/bin
-                for w in [24]:
-                    group[f'{col}_roll_mean_{w}h'] = group[col].shift(1).rolling(w).mean()
-                    group[f'{col}_roll_std_{w}h'] = group[col].shift(1).rolling(w).std()
-                return group
+            # Select all necessary columns for computation
+            cols_to_compute = ['PULocationID', 'bin'] + services + city + neighbors
+            pdf = df[cols_to_compute].compute()
             
-            pdf.reset_index()
-            pdf = pdf.sort_values(['PULocationID','bin'])
+            pdf = pdf.sort_values(['PULocationID', 'bin'])
 
-            ##generating the autoregressive feature
-            pdf = pdf.groupby('PULocationID', 
-                              group_keys=False).apply(make_lags) 
+            def make_lags(group):
+                for s in services:
+                    #Zone-level Lags (1h and 24h)
+                    for l in [1, 24]:
+                        group[f'{s}_lag_{l}h'] = group[s].shift(l)
 
-            # Create lag features for city pickups(1h, 24h)
-            for lag in [1, 24]:
-                pdf[f'city_pickups_lag_{lag}h'] = pdf['city_pickups'].shift(lag)
+                for c in city:
+                    #city-level Lags (1h and 24h)
+                    for l in [1, 24]:
+                        group[f'{c}_lag_{l}h'] = group[c].shift(l)
+                
+                for n in neighbors:
+                    #Neighbor Lags (1h and 24h)
+                    for l in [1, 24]:
+                        group[f'{n}_lag_{l}h'] = group[n].shift(l)
+                
+                return group
 
-            ## computing the Lagged neighbor demand
-            for lag in [1,24]:
-                pdf[f'neighbor_pickups_lag_{lag}h'] = pdf.groupby(
-                    'PULocationID')['neighbor_pickups_sum'].shift(lag)
+            # Apply lags per Zone
+            pdf = pdf.groupby('PULocationID', group_keys=False).apply(make_lags)
 
             pdf.fillna(0, inplace=True)
 
-            df = df.merge(dd.from_pandas(pdf, npartitions=4), on=['PULocationID', "bin"], how='left')
-            df= df.rename(columns={'pickups_x':'pickups', 'city_pickups_x':'city_pickups', 
-                       'neighbor_pickups_sum_x':'neighbor_pickups_sum'}
-                       )
+            # Merge back to Dask
+            new_ddf = dd.from_pandas(pdf, npartitions=df.npartitions)
+            df = df.merge(new_ddf, on=['PULocationID', 'bin'], how='left', suffixes=('', '_y'))
             
-            df = df.drop(['pickups_y', 'city_pickups_y', 'neighbor_pickups_sum_y'], axis=1)
+            # Dropping redundant columns from the merge
+            cols_to_drop = [c for c in df.columns if c.endswith('_y')]
+            df = df.drop(cols_to_drop, axis=1)
 
             return df
 
         except Exception as e:
-            logger.error("Failed to generate autoregressive features", exc_info=True)
-            raise RideDemandException(e, sys)
-        
+            logger.error("Failed to generate multi-output autoregressive features")
+            raise RideDemandException(e,sys)
+            
         
     def save_data_to_feature_store(self, df):
         try:
@@ -515,24 +400,9 @@ class DataTransformation:
 
             ##converting dask dataframe to pandas dataframe
             data = data.compute()
-
-            # 1. Define the desired data types
-            type_mapping = {
-                'pickups': 'int64',
-                'city_pickups': 'int64',
-                'neighbor_pickups_sum': 'int64',
-                'is_holiday': 'int32',
-                'Is_special_event': 'int32'
-            }
-
-            # 2. Apply the casting safely
-            for col, dtype in type_mapping.items():
-                if col in data.columns:
-                    data[col] = data[col].astype(dtype)
-
             ## creating a new feature group
             fg = fs.get_or_create_feature_group(
-                name = 'ridedemandprediction',
+                name = 'nycdemandprediction',
                 version = 1,
                 primary_key = ['PULocationID', 'bin_str'],
                 event_time = 'bin',
@@ -542,8 +412,8 @@ class DataTransformation:
             )
 
             ## inserting new data in the feature group created above
-            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': True, 'use_spark':True})
-
+            fg.insert(data, storage = 'offline', write_options = {'wait_for_job': False, 'use_spark':True})
+            
             logger.info('data successfully added to hopsworks feature group')
 
         except Exception as e:
@@ -551,17 +421,11 @@ class DataTransformation:
          
     def initiate_feature_engineering(self):
         try:
-            df = self.derive_target_and_join_to_weather_feature()
+            df = self.merge_weather_features()
 
             ## Temporal feature
             df = self.engineer_temporal_feature(df)
             
-            ## Citywide congestion features
-            df = self.city_wide_congestion_features(df)
-
-            ## zone level congestion features
-            df = self.zone_level_congestion_features(df)
-
             ## citywide hourly demand
             df = self.citywide_hourly_demand(df)
 
@@ -572,7 +436,7 @@ class DataTransformation:
             df = self.engineer_autoregressive_signals(df)
 
             ## saving the data
-            self.save_data_to_feature_store(df)
+            #self.save_data_to_feature_store(df)
 
             ## pushing data to feature store
             self.push_transformed_data_to_feature_store(df)

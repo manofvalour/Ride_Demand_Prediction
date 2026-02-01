@@ -10,6 +10,7 @@ import re
 from dotenv import load_dotenv
 import gc
 from dateutil.relativedelta import relativedelta
+import numpy as np
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -22,7 +23,7 @@ class DataIngestion:
     def __init__(self, config: DataIngestionConfig):
         try:
             ## two months into the past
-            now = (datetime.today())
+            now = (datetime.today()-relativedelta(months=11))
             end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
@@ -34,31 +35,46 @@ class DataIngestion:
             start_date= end_date - timedelta(days=days-1)
 
             self.config = config
+           # start_date = start_date - relativedelta(months=1)  #1
+            #end_date = end_date - relativedelta(months=1) #2
+
             self.start_date = start_date.strftime('%Y-%m-%d')
             self.end_date = end_date.strftime('%Y-%m-%d')
 
             self.api_key = os.getenv('API_KEY')
 
         except Exception as e:
-            logger.info(f"unable to calculate the end_date and start_date, {e}")
+            logger.error(f"unable to calculate the end_date and start_date, {e}")
             raise RideDemandException(e,sys)
 
     ## things to do: (ingesting the data (weather and nyc_yellow_taxi_data)) -> nyc_tlc_url, 
 
-    def get_NYC_yellow_taxi_data(self)->pd.DataFrame:
-      
+    def get_NYC_ride_data(self, taxi_type:str)->pd.DataFrame:
+
       taxi_data_url = self.config.taxi_data_url
       taxi_data_date = datetime.strptime(self.start_date, "%Y-%m-%d")
       taxi_end_date = datetime.strptime(self.end_date, "%Y-%m-%d")
       taxi_data_end_date = taxi_end_date + timedelta(days=1)
       try:
+        
+        headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'
+                        }
 
         # Send GET request
-        response = requests.get(taxi_data_url) ## retrieve the content of the url
+        response = requests.get(taxi_data_url, headers = headers,timeout = 30) ## retrieve the content of the url
         soup = BeautifulSoup(response.content, "html.parser")
 
-        # Regex pattern to match Yellow Taxi files with date
-        pattern = re.compile(r"(yellow_tripdata_)(\d{4}-\d{2})\.parquet", re.IGNORECASE)
+        # Regex pattern to match Yellow, Green, and FHvHV Trip files with date
+        if taxi_type == 'yellow':
+          pattern = re.compile(r"(yellow_tripdata_)(\d{4}-\d{2})\.parquet", re.IGNORECASE)
+        elif taxi_type == 'green':
+          pattern = re.compile(r"(green_tripdata_)(\d{4}-\d{2})\.parquet", re.IGNORECASE)
+        elif taxi_type == 'hvfhv':
+          pattern = re.compile(r"(fhvhv_tripdata_)(\d{4}-\d{2})\.parquet", re.IGNORECASE)
+
+        else:
+          raise ValueError("Invalid type. Must be 'yellow', 'green', or 'hvfhv'.")
 
         # Loop through all links
         data= None
@@ -70,15 +86,68 @@ class DataIngestion:
                 file_date = datetime.strptime(date_str, "%Y-%m")
                 if file_date == taxi_data_date:
                     full_url = href if href.startswith("http") else f"https://www.nyc.gov{href}"
-                    print(f"Downloading data {date_str} from {full_url}")
-                    
-                    cols = ["tpep_pickup_datetime","tpep_dropoff_datetime","PULocationID",
-                            "DOLocationID","trip_distance"]
-                    
+                    logger.info(f"Downloading data {date_str} from {full_url}")
+
+                    if taxi_type == 'yellow':
+                      cols = ["tpep_pickup_datetime","tpep_dropoff_datetime",
+                              "PULocationID", "DOLocationID","trip_distance"]
+                    elif taxi_type == 'green':
+                      cols = ["lpep_pickup_datetime","lpep_dropoff_datetime", ## Corrected column name here
+                              "PULocationID", "DOLocationID","trip_distance"]
+                    elif taxi_type == 'hvfhv':
+                      cols = ["pickup_datetime", "dropoff_datetime", "PULocationID",
+                              "DOLocationID", "trip_miles", "trip_time"]
+
                     data = pd.read_parquet(full_url, columns=cols)
-                    data = data[(taxi_data_date <= data['tpep_pickup_datetime']) & (data['tpep_pickup_datetime'] < taxi_data_end_date)]
-                    #data = dtype_downcast(data)
-                 
+
+                    if taxi_type == 'yellow':
+                      data = data.rename(columns={
+                          'trip_distance': 'trip_miles', 
+                          'tpep_pickup_datetime': 'pickup_datetime',
+                          'tpep_dropoff_datetime': 'dropoff_datetime'
+                      })
+                    elif taxi_type == 'green':
+                        data = data.rename(columns={
+                            'trip_distance': 'trip_miles', 
+                            'lpep_pickup_datetime': 'pickup_datetime',
+                            'lpep_dropoff_datetime': 'dropoff_datetime'
+                        })
+
+                    # Date Filtering
+                    data['pickup_datetime'] = pd.to_datetime(data['pickup_datetime'])
+                    date_mask = (data['pickup_datetime'] >= self.start_date) & (data['pickup_datetime'] < taxi_data_end_date)
+                    data = data.loc[date_mask].copy() 
+
+                    # 3. Compute Duration (Standardizing the different logic)
+                    if taxi_type == 'hvfhv' and 'trip_time' in data.columns:
+                        # HVFHV provides 'trip_time' in seconds directly
+                        data['trip_duration_hr'] = data['trip_time'] / 3600
+                        data = data.drop(columns=['trip_time'])
+                        data['service_type'] = 'hvfhv'
+                    else:
+                        # Yellow/Green require calculation from timestamps
+                        data['dropoff_datetime'] = pd.to_datetime(data['dropoff_datetime'])
+                        data['trip_duration_hr'] = (data['dropoff_datetime'] - data['pickup_datetime']).dt.total_seconds() / 3600
+                        if taxi_type == 'green':
+                          data['service_type'] = 'green'
+                        elif taxi_type == 'yellow':
+                          data['service_type'] = 'yellow'
+
+                    #Filter and Calculate Speed
+                    data = data[
+                        (data['trip_duration_hr'] > 0) & 
+                        (data['trip_miles'] >= 0)
+                    ].copy()
+
+                    data['MPH'] = data['trip_miles'] / data['trip_duration_hr']
+                    
+                    # Standardize filtering for all types
+                    data = data[data['MPH'].between(1, 60)].copy()
+
+                    # 5. Create Time Bins
+                    data['bin'] = data['pickup_datetime'].dt.floor('60min')
+                    data = dtype_downcast(data)
+
                     logger.info(f"data for {date_str} successfully downloaded")
 
         if data is None:
@@ -90,6 +159,123 @@ class DataIngestion:
         logger.error(f"Error retrieving the data for {date_str}")
         raise RideDemandException(e,sys)
       
+    def derive_targets(self, yellow_df, green_df, hvfhv_df):
+        """
+        Transforms trip-level data into hourly demand targets.
+        df: The combined dataframe containing yellow, green, and hvfhv trips.
+        """
+        try:
+            ## concatinating the dataset
+            df = pd.concat([yellow_df, green_df, hvfhv_df], axis=0)
+            df['service_type'] = df['service_type'].astype('category')
+
+            logger.info('dataframe concatenated sucessfully!')
+            
+            # Group by Hour (bin), Zone (pulocationid), and Service Type
+            counts = df.groupby(['bin', 'PULocationID', 'service_type']).size().reset_index(name='trip_count')
+
+            #Pivot the service_type so each service gets its own column
+            target_df = counts.pivot_table(
+                index=['bin', 'PULocationID'], 
+                columns='service_type', 
+                values='trip_count', 
+                fill_value=0
+            ).reset_index()
+
+            #Ensure all three target columns exist (even if one service had zero trips total)
+            for service in ['yellow', 'green', 'hvfhv']:
+                if service not in target_df.columns:
+                    target_df[service] = 0
+                    
+            #Rename columns clearly for the model
+            target_df = target_df.rename(columns={
+                'yellow': 'target_yellow',
+                'green': 'target_green',
+                'hvfhv': 'target_hvfhv'
+            })
+
+            # Create a skeleton of all possible combinations
+            all_bins = df['bin'].unique()
+            all_zones = df['PULocationID'].unique()
+            grid = pd.MultiIndex.from_product([all_bins, all_zones], names=['bin', 'PULocationID']).to_frame(index=False)
+
+            # Merge your targets onto this grid
+            data = grid.merge(target_df, on=['bin', 'PULocationID'], how='left').fillna(0)
+
+            # Compute citywide average speed per hour
+            city_speed = (
+                df.groupby('bin')['MPH']
+                .mean()
+                .reset_index()
+                .rename(columns={'MPH': 'city_avg_speed'})
+            )
+
+            #Compute Congestion Index
+            city_speed['city_congestion_index'] = np.where(
+                city_speed['city_avg_speed'] > 0, 
+                1.0 / city_speed['city_avg_speed'], 
+                np.nan
+            )
+
+            # Merge back into the main dataframe
+            data = data.merge(city_speed, on='bin', how='left')
+            logger.info('city_wide congestion index and speed successfully derived')
+
+            #compute Zone-Level Speed
+            zone_speed = (
+                df.groupby(['PULocationID', 'bin'])['MPH']
+                .mean()
+                .reset_index()
+                .rename(columns={'MPH': 'zone_avg_speed'})
+            )
+
+            #Create the Full Grid (Ensure no missing hours/zones)
+            zones = df['PULocationID'].unique()
+            time_index = pd.date_range(df['bin'].min(), df['bin'].max(), freq='60min')
+            grid = pd.MultiIndex.from_product(
+                [zones, time_index], 
+                names=['PULocationID', 'bin']
+            ).to_frame(index=False)
+
+            #Merge Zone Data onto Grid, then Merge City Fallback
+            combined_speed = grid.merge(zone_speed, on=['PULocationID', 'bin'], how='left')
+            combined_speed = combined_speed.merge(city_speed, on='bin', how='left')
+            combined_speed['zone_avg_speed'] = combined_speed['zone_avg_speed'].fillna(combined_speed['city_avg_speed'])
+            
+            #Handle cases where both might be NaN
+            global_mean = combined_speed['city_avg_speed'].mean()
+            combined_speed['zone_avg_speed'] = combined_speed['zone_avg_speed'].replace(0, np.nan).fillna(global_mean)
+
+            #Compute Congestion Index (1/Speed)
+            combined_speed['zone_congestion_index'] = np.where(
+                combined_speed['zone_avg_speed'] > 0, 
+                1.0 / combined_speed['zone_avg_speed'], 
+                0
+            )
+
+            #Merge back into main df
+            data = data.merge(
+                combined_speed[['PULocationID', 'bin', 'zone_avg_speed', 
+                                'zone_congestion_index',]], 
+                on=['PULocationID', 'bin'], 
+                how='left'
+            )
+
+            logger.info('city_wide congestion index and speed feature derived successfully')
+
+            ## round data to 3 decimal
+            data['city_avg_speed'] = data['city_avg_speed'].round(2)
+            data['city_congestion_index'] = data['city_congestion_index'].round(3)
+            data['zone_avg_speed'] = data['zone_avg_speed'].round(2)
+            data['zone_congestion_index'] = data['zone_congestion_index'].round(3)
+
+            logger.info('Target features has been derived')
+
+            return data
+        
+        except Exception as e:
+           logger.error('Unable to create the target features')
+           raise RideDemandException(e,sys)
 
     def extract_nyc_weather_data(self)->pd.DataFrame:
 
@@ -151,6 +337,7 @@ class DataIngestion:
         except Exception as e:
             logger.error(f"failed to extract weather data {e}")
             raise RideDemandException(e,sys)
+        
     
     def save_data_to_artifact(self, nyc_taxi_data, nyc_weather_data)->None:
         try:
@@ -164,8 +351,29 @@ class DataIngestion:
             logger.info(f"saving the NYC_weather dataset to {weather_file_path}")
             nyc_weather_data.to_csv(weather_file_path, index= False)
 
-            logger.info('Successfully saved the datasets to artifacts paths: {taxi_file_path},{weather_file_path}')
+            logger.info(f'Successfully saved the datasets to artifacts paths: {taxi_file_path},{weather_file_path}')
        
         except Exception as e:
             logger.error(f"Unable to save the datasets to artifact: {e}")
+            raise RideDemandException(e,sys)
+        
+    def initiate_data_ingestion(self):
+        try:
+            yellow_df = self.get_NYC_ride_data('yellow')
+            green_df = self.get_NYC_ride_data('green')
+            hvfhv_df = self.get_NYC_ride_data('hvfhv')
+
+            logger.info(f'Taxi_data downloaded. yellow_taxi_data_size: {yellow_df.shape}')
+            logger.info(f'Taxi_data downloaded. Green_taxi_data_size: {green_df.shape}')
+            logger.info(f'Taxi_data downloaded. HVFHV_data_size: {hvfhv_df.shape}')
+
+            taxi_df = self.derive_targets(yellow_df, green_df, hvfhv_df)
+            logger.info(f"Target feature derived successfully!")
+
+            weather_df = self.extract_nyc_weather_data()
+            logger.info(f'Weather_data downloaded. Weather_data_size: {weather_df.shape}')
+
+            return taxi_df, weather_df
+
+        except Exception as e:
             raise RideDemandException(e,sys)

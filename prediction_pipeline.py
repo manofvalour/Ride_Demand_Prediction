@@ -6,12 +6,13 @@ from src.DynamicPricingEngine.component.inference import Inference
 from time import time
 
 
-
-def predict():
+if __name__=="__main__":
+    
+    STAGE_NAME = 'Prediction Stage'  
 
     try:
         t0= time()
-        logger.info(f"Prediction initiated")
+        logger.info(f"{STAGE_NAME} initiated")
         config = ConfigurationManager()
         inference_config = config.get_inference_config()
         pred_pipeline = Inference(inference_config)
@@ -19,7 +20,7 @@ def predict():
 
         t1 = time()
         dt = (t1 - t0)
-        logger.info(f"Prediction completed in {dt:.2f}secs")
+        logger.info(f"{STAGE_NAME} completed in {dt:.2f}secs")
 
     except Exception as e:
         raise RideDemandException(e,sys)

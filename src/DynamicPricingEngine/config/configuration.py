@@ -1,3 +1,4 @@
+#from src.DynamicPricingEngine.component import data_transformation
 from src.DynamicPricingEngine.utils.common_utils import create_dir, read_yaml
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -109,13 +110,17 @@ class ConfigurationManager:
         try:
             ## creating the inference root directory
             create_dir([config.root_dir])
+            logger.info(f"Inference root directory created successfully: {config.root_dir}")
 
             inference_config = InferenceConfig(
                 root_dir = config.root_dir,
                 input_data_path = config.input_data_path,
                 model_path = config.model_path,
                 predictions_output_path = config.predictions_output_path,
-                weather_data_url= data_ingestion_config.weather_data_url
+                weather_data_url= data_ingestion_config.weather_data_url,
+                taxi_zone_shapefile_url= config.taxi_zone_shapefile_url,
+                zone_lookup_table_url= config.zone_lookup_url,
+                shapefile_dir=config.shapfile_dir
             )
 
             return inference_config

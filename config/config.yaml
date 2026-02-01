@@ -26,7 +26,10 @@ inference:
   root_dir: artifacts/inference
   input_data_path: artifacts/inference/input_data.csv
   model_path: artifacts/inference/model.pkl
-  predictions_output_path: artifacts/inference/predictions.csv
+  predictions_output_path: artifacts/inference/predictions.json
+  zone_lookup_url : "https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv"
+  shapfile_dir: artifacts/inference/shapefile
+  taxi_zone_shapefile_url: https://d37ci6vzurychx.cloudfront.net/misc/taxi_zones.zip
   
   
   

@@ -45,7 +45,12 @@ class InferenceConfig:
     input_data_path: Path
     model_path: Path
     predictions_output_path: Path
-    weather_data_url: str    
+    weather_data_url: str
+    shapefile_dir: Path
+    taxi_zone_shapefile_url: Path
+    zone_lookup_table_url: Path
+
+
 
 
 

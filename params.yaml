@@ -1,7 +1,7 @@
 ml_params:
   train_split_ratio: 0.7
   val_split_ratio: 0.85
-  target_col: pickups
+  target_col: ['target_yellow', 'target_green', 'target_hvfhv']
 
 optuna_param_spaces: { 
   

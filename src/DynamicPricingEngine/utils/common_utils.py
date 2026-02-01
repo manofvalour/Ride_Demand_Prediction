@@ -12,6 +12,8 @@ import requests
 import zipfile
 import io
 import geopandas as gpd
+import time
+import pandas as pd
 
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
@@ -167,7 +169,7 @@ def save_yaml(file_path:str, yaml_file:object)-> None:
 
 
 #@ensure_annotations
-def load_shapefile_from_zip(url, extract_to):
+def load_shapefile_from_zipfile(url, extract_to)->gpd.GeoDataFrame:
     """
     Downloads a ZIP file from a URL, extracts it, and loads the shapefile.
     
@@ -178,25 +180,80 @@ def load_shapefile_from_zip(url, extract_to):
     Returns:
         geopandas.GeoDataFrame: The loaded shapefile as a GeoDataFrame.
     """
-    # Step 1: Download the zipfile
-    response = requests.get(url)
-    response.raise_for_status()  # raise error if download failed
+
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'
+    }
+
+    max_retries = 3
     
-    # Step 2: Extract the zipfile
-    with zipfile.ZipFile(io.BytesIO(response.content)) as z:
-        z.extractall(extract_to)
-    
-    # Step 3: Find the .shp file (main shapefile component)
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Downloading shapefile (Attempt {attempt+1})...")
+            response = requests.get(url, headers=headers, timeout=30)
+            
+            if response.status_code == 202 or (response.status_code == 200 and not response.content):
+                logger.info("Server returned 202 or empty body. Waiting 10 seconds...")
+                time.sleep(10)
+                continue
+            
+            response.raise_for_status()
+            content = response.content
+
+            if zipfile.is_zipfile(io.BytesIO(content)):
+               with zipfile.ZipFile(io.BytesIO(content)) as z:
+                  z.extractall(extract_to)
+               logger.info("Shapefile loaded successfully.")
+               break 
+            else:
+                logger.error(f"Error: Content from server is not a valid zip file.")
+              
+        except Exception as e:
+            logger.error(f"Error on attempt {attempt+1}: {e}")
+            time.sleep(5)
+
+    # Find the .shp file
     shp_file = None
     for root, dirs, files in os.walk(extract_to):
         for file in files:
             if file.endswith(".shp"):
                 shp_file = os.path.join(root, file)
                 break
-    
+
     if shp_file is None:
         raise FileNotFoundError("No .shp file found in the extracted archive.")
+
+    #Load into GeoDataFrame
+    return gpd.read_file(shp_file)
+
+def download_csv_from_web(url)-> pd.DataFrame:
+    try:
+
+        headers = {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/91.0.4472.124 Safari/537.36'
+                        }
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"Downloading zone_lookup_table (Attempt {attempt+1})...")
+                response = requests.get(url, headers=headers, timeout=30)
+                
+                if response.status_code == 202 or (response.status_code == 200 and not response.content):
+                    logger.info("Server returned 202 or empty body. Waiting 10 seconds...")
+                    time.sleep(10)
+                    continue
+                
+                response.raise_for_status()
+                break 
+                
+            except Exception as e:
+                print(f"Error on attempt {attempt+1}: {e}")
+                time.sleep(5)
+        
+        return pd.read_csv(io.StringIO(response.text))
     
-    # Step 4: Load shapefile into GeoDataFrame
-    gdf = gpd.read_file(shp_file)
-    return gdf
+    except Exception as e:
+        logger.error("Can't access the content for the url")
+        raise RideDemandException(e,sys)
+

@@ -7,9 +7,14 @@ import pandas as pd
 import numpy as np
 import os, sys
 import mlflow
+from sklearn.multioutput import MultiOutputRegressor
 
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
+
+from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import OneHotEncoder
+from sklearn.compose import ColumnTransformer
 
 class _ModelTrial:
     """Wraps one model + Optuna search space."""
@@ -17,60 +22,66 @@ class _ModelTrial:
         self.name = name
         self.model_cls = model_cls
         self.param_space = param_space
-        self.cat_cols = ['pulocationid', 'pickup_hour', 'is_rush_hour']
+        self.cat_cols = ['day_of_week','is_night_hour','pickup_hour',
+                             'is_rush_hour','pulocationid',
+                             "pickup_month"]
 
     def _objective(self, trial, X_train, y_train, X_val, y_val):
-
         try:
-
             params = {}
             for pname, pdef in self.param_space.items():
                 if pdef['type'] == "int":
                     params[pname] = trial.suggest_int(pname, int(pdef["low"]), int(pdef["high"]))
-                
                 elif pdef["type"] == "float":
-                    params[pname] = trial.suggest_float(
-                        pname, float(pdef["low"]), float(pdef["high"]), log=bool(pdef.get("log", False)))
-                    
-
+                    params[pname] = trial.suggest_float(pname, float(pdef["low"]), 
+                                                        float(pdef["high"]), 
+                                                        log=bool(pdef.get("log", False)))
                 elif pdef["type"] == "categorical":
                     params[pname] = trial.suggest_categorical(pname, pdef["choices"])
 
-            # Early stopping per model
-            if self.name == "lgbm":
-                model = self.model_cls(**params, device='cpu', n_jobs=-1, importance_type='gain')
-                model.fit(
-                    X_train, y_train,
-                    eval_set=[(X_val, y_val)],
-                 #callbacks=[optuna.integration.LightGBMPruningCallback(trial, "rmse")],
-               #  verbose=False,
-                )
+            # Logic for Categorical Encoding
+            if self.name in ['random_forest', 'decision_tree']:
+                from sklearn.pipeline import Pipeline
+                from sklearn.preprocessing import OneHotEncoder
+                from sklearn.compose import ColumnTransformer
 
+                preprocessor = ColumnTransformer(
+                    transformers=[('cat', OneHotEncoder(handle_unknown='ignore', 
+                                                        sparse_output=False), self.cat_cols)],
+                    remainder='passthrough'
+                )
+                
+                base_model = Pipeline([
+                    ('prep', preprocessor),
+                    ('reg', self.model_cls(**params, n_jobs=-1))
+                ])
+            
+            elif self.name == "lgbm":
+                base_model = self.model_cls(**params, device='cpu', n_jobs=-1, verbosity=-1)
+            
             elif self.name == 'catboost':
                 cat_idx = [X_train.columns.get_loc(c) for c in self.cat_cols if c in X_train.columns]
-                model = self.model_cls(**params, task_type="CPU", thread_count=-1, early_stopping_rounds=10) #'GPU'if torch.cuda.is_available() else 'CPU')
-                model.fit(X_train, y_train, cat_features=cat_idx,
-                            #eval_set=[(X_val, y_val)],
-                            verbose=False)
-
+                # CatBoost handles categories internally
+                base_model = self.model_cls(**params, loss_function="MultiRMSE", task_type="CPU", thread_count=-1, 
+                                            cat_features=cat_idx, verbose=False)
+                
             elif self.name == 'xgboost':
-                model = self.model_cls(enable_categorical=True,early_stopping_rounds=10, n_jobs=-1, **params)
-                model.fit(X_train, y_train,
-                            eval_set=[(X_val, y_val)],
-                            verbose=False)
+                # XGBoost handles categories internally if enable_categorical=True
+                base_model = self.model_cls(enable_categorical=True, **params, n_jobs=-1)
 
-            else:
-                model = self.model_cls(**params, n_jobs=-1)
-                model.fit(X_train, y_train)
+            # Wrap and Fit
+            model = MultiOutputRegressor(base_model)
+            model.fit(X_train, y_train)
 
             val_pred = model.predict(X_val)
-            return np.sqrt(mean_squared_error(y_val, val_pred))  # Optuna minimizes
+            return np.sqrt(mean_squared_error(y_val, val_pred))
 
         except Exception as e:
-            logger.error(f"failed to load parameters and train model")
+            logger.error(f"Failed during Optuna trial: {e}")
             raise RideDemandException(e,sys)
 
-    def tune(self, X_train, y_train, X_val, y_val, n_trials: int = 30):
+    def tune(self, X_train, y_train, X_val, 
+             y_val, n_trials: int = 30):
         """ Optuna Tuning"""
 
         try:
@@ -92,100 +103,94 @@ class _ModelTrial:
             logger.error(f"Hyperparameter Tuning Failed, {e}")
             raise RideDemandException(e,sys)
 
+
+
  ## For tracking experiments
 def log_model(name, model, params, X_val, y_val):
     try:
         with mlflow.start_run():
 
             if y_val is not None:
-                #if name == 'Temporal Fusion Transformer':
-                #    y_pred = model.predict(X_val).numpy().flatten()
-                #else:
                 y_pred = model.predict(X_val)
 
-                rmse = np.sqrt(mean_squared_error(y_val, y_pred))
-                mae = mean_absolute_error(y_val, y_pred)
-                r2 = r2_score(y_val, y_pred)
+                rmse_values = []
+                mae_values = []
+                r2_values = []
+                target_names = ['target_yellow', 'target_green', 'target_hvfhv']
+                for i, target in enumerate(target_names):
 
-            #  rmse, mae, r2 = regression_error_score(y_val, pred)
+                    rmse = np.sqrt(mean_squared_error(y_val.iloc[:,i], y_pred[:,i]))
+                    mae = mean_absolute_error(y_val.iloc[:,i], y_pred[:,i])
+                    r2 = r2_score(y_val.iloc[:,i], y_pred[:,i])
 
-                mlflow.log_metric("val_rmse", rmse)
-                mlflow.log_metric("val_mae", mae)
-                mlflow.log_metric("val_r2_score", r2)
-                mlflow.log_params(model.get_params())
-                logger.info(f"{name} model parameter and evaluation metrics tracked with MLflow")
+                    mlflow.log_metric(f"{target}_val_rmse", rmse)
+                    mlflow.log_metric(f"{target}_val_mae", mae)
+                    mlflow.log_metric(f"{target}_val_r2_score", r2)
+                    mlflow.log_params(model.get_params())
+                    logger.info(f"{name} model parameter and evaluation metrics tracked with MLflow")
+                
+                    rmse_values.append(rmse)
+                    mae_values.append(mae)
+                    r2_values.append(r2)
+                
+                # Calculate overall metrics as the mean of individual target metrics
+                overall_rmse = np.mean(rmse_values)
+                overall_mae = np.mean(mae_values)
+                overall_r2 = np.mean(r2_values)
 
-            return rmse, mae, r2
-        
+            return overall_rmse, overall_mae, overall_r2 # Return single values for summary
+
     except Exception as e:
         logger.error(f'failed to log parameter and metrics to MLFlow, {e}')
         raise RideDemandException(e,sys)
 
 
-#def regression_error_score(y_true, y_pred):
- #   rmse = np.sqrt(mean_squared_error(y_true, y_pred))
-  #  mae = mean_absolute_error(y_true, y_pred)
-   # r2 = r2_score(y_true, y_pred)
-
-    #return rmse, mae, r2
-
-
-
-def evaluate_model(x_train: pd.DataFrame, y_train: pd.Series | np.ndarray, x_test: pd.DataFrame, 
-                   y_test: pd.Series | np.ndarray, models: Dict[str, Any], 
-                   param_spaces: Dict[str, Dict[str, Any]], n_trials: int = 30,
-                   random_state: int = 42,) -> Dict[str, Dict[str, float]]:
-    """
-    Returns: {"model_name": {"mae": ..., "rmse": ..., "r2": ...}}
-    """
+## Evaluating models
+def evaluate_model(x_train, y_train, x_test, y_test, 
+                   models, param_spaces, n_trials=30):
     try:
-        report: Dict[str, Dict[str, float]] = {}
+        report = {}
         trained_models = {}
-        cat_cols = ['pickup_hour', 'is_rush_hour']
+        cat_cols = ['day_of_week','is_night_hour','pickup_hour',
+                    'is_rush_hour','pulocationid',"pickup_month"]
 
         for name, model_cls in models.items():
-            print(f"\nTUNING {name.upper()}")
+            print(f"\n TUNING {name.upper()}")
 
             trial = _ModelTrial(name, model_cls, param_spaces[name])
             best_params = trial.tune(x_train, y_train, x_test, y_test, n_trials=n_trials)
-            print(f"Best params for {name}: {best_params}")
 
-            # Retrain on FULL training data
-            if name == "xgboost":
-                final_model = model_cls(enable_categorical=True, **best_params, n_jobs=-1, early_stopping_rounds =10)
-                final_model.fit(x_train, y_train,
-                                    eval_set=[(x_test, y_test)],  # <--- This is what's missing
-                                    #early_stopping_rounds=10,    # Usually passed here or in the constructor
-                                    verbose=False
-                                )
-
+            # Final Model
+            if name == 'random_forest':
+                preprocessor = ColumnTransformer(
+                    transformers=[('cat', OneHotEncoder(handle_unknown='ignore', sparse_output=False), cat_cols)],
+                    remainder='passthrough'
+                )
+                base_est = Pipeline([('prep', preprocessor), ('reg', model_cls(**best_params, n_jobs=-1))])
+            
             elif name == 'catboost':
                 cat_idx = [x_train.columns.get_loc(c) for c in cat_cols if c in x_train.columns]
-                final_model = model_cls(**best_params, thread_count=-1, early_stopping_rounds=10, task_type='CPU') #'GPU' if torch.cuda.is_available() else 'CPU   ) ')
-                final_model.fit(x_train, y_train, cat_features=cat_idx,
-                          eval_set=[(x_test, y_test)],
-                          verbose=False)
-                
-            elif name == 'random_forest':
-                cat_cols_present = [col for col in cat_cols if col in x_train.columns]
-                X_train_encoded = pd.get_dummies(x_train, columns=cat_cols_present, drop_first=True)
-                x_test = pd.get_dummies(x_test, columns=cat_cols_present, drop_first=True)
-                final_model = model_cls(**best_params, n_jobs =-1)
-                final_model.fit(X_train_encoded, y_train)
+                base_est = model_cls(**best_params, thread_count=-1, cat_features=cat_idx, verbose=False)
+            
+            elif name == 'xgboost':
+                base_est = model_cls(enable_categorical=True, **best_params, n_jobs=-1)
+            
+            else: # Default
+                base_est = model_cls(**best_params, n_jobs=-1, verbosity=-1)
 
-            else:
-              final_model = model_cls(**best_params, 
-                            evaldevice='cpu', n_jobs=-1, importance_type='gain')
-              final_model.fit(x_train, y_train)
+            # Wrap in MultiOutput and Fit
+            final_model = MultiOutputRegressor(base_est)
+            final_model.fit(x_train, y_train)
 
-            rmse, mae, r2= log_model(name, final_model, best_params, x_test, y_test)
+            # Log to MLflow and Evaluate
+            rmse, mae, r2 = log_model(name, final_model, best_params, x_test, y_test)
 
             report[name] = {"rmse": rmse, "mae": mae, "R2_score": r2}
-            trained_models[name]= final_model
-            logger.info(f"{name.upper()} → MAE: {mae:.3f} | RMSE: {rmse:.3f} | R2_score: {r2:.3f}")
+            trained_models[name] = final_model
+            logger.info(f"{name.upper()} → MAE: {mae:.3f} | R2: {r2:.3f}")
 
         return report, trained_models
 
     except Exception as e:
         logger.error(f"Evaluation failed: {e}")
-        raise RideDemandException (e,sys)
+        raise RideDemandException(e,sys)

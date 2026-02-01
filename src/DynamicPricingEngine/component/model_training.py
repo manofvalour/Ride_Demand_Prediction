@@ -1,179 +1,101 @@
 import os, sys
-from sklearn.model_selection import TimeSeriesSplit
-from sklearn.metrics import r2_score, mean_absolute_error, mean_squared_error
 import pandas as pd
-import numpy as np
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta, datetime
-from sklearn.impute import SimpleImputer
-from sklearn.preprocessing import StandardScaler, OneHotEncoder
-from sklearn.pipeline import Pipeline
-from sklearn.compose import ColumnTransformer
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
 from catboost import CatBoostRegressor
 from sklearn.ensemble import RandomForestRegressor
 import dagshub
 import dill
-from sklearn.feature_selection import mutual_info_regression
 import mlflow
 from pathlib import Path
+from hsml.schema import Schema
+from hsml.model_schema import ModelSchema
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.config.configuration import ModelTrainerConfig
 from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 from src.DynamicPricingEngine.utils.ml_utils import evaluate_model
-from src.DynamicPricingEngine.utils.common_utils import save_pickle
 import hopsworks
-from hsfs.feature_view import FeatureView
 
 from dotenv import load_dotenv
 load_dotenv()
 
-dagshub.init(repo_owner='manofvalour',
-             repo_name='Dynamic-Pricing-Engine',
-             mlflow=True)
-
-mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
-mlflow.set_experiment(experiment_name="Ride Demand Prediction")
-
 class ModelTrainer:
     def __init__(self, config: ModelTrainerConfig):
         try:
+            dagshub.init(repo_owner='manofvalour', 
+                         repo_name='Dynamic-Pricing-Engine',
+                         mlflow=True)
+
+            mlflow.set_tracking_uri("https://dagshub.com/manofvalour/Dynamic-Pricing-Engine.mlflow")
+            mlflow.set_experiment(experiment_name="Ride Demand Prediction")
 
             self.api_key = os.getenv('HOPSWORKS_API_KEY')
             self.config= config
-            self.cat_cols = ['pickup_hour','is_rush_hour']
+            self.cat_cols = ['day_of_week','is_night_hour','pickup_hour',
+                             'is_rush_hour','pulocationid', 
+                             "pickup_month"]
+            self.project = hopsworks.login(project='RideDemandPrediction',
+                                      api_key_value=self.api_key)
+
 
         except Exception as e:
             raise RideDemandException(e,sys)
         
-    def retrieve_engineered_feature(self):
+    def retrieve_engineered_feature(self) -> pd.DataFrame:
         try:
-            ## login to feature store
-            
+
             now = datetime.today()
             end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
             days_to_subtract = time_subtract(end_date.strftime('%Y-%m-%d'))
             end_date = (end_date- timedelta(days=days_to_subtract)+ timedelta(days=1))
-
-            ## a year back from end date 
-            start_date = end_date - relativedelta(months= 12)
+            start_date = end_date - relativedelta(months=12)  #a year back from end date
 
             start_date = start_date.strftime('%Y-%m-%d')
             end_date = end_date.strftime('%Y-%m-%d')
 
             logger.info('Retrieving the dataset from hopsworks feature store')
 
+            fs = self.project.get_feature_store()
+            
+            fg = fs.get_feature_group(
+                name = 'nycdemandprediction',
+                version = 1)
 
-            ## login to feature store
-            project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.api_key)
-            fs = project.get_feature_store()
+            final_features = ['pickup_month', 'city_congestion_index', 'zone_congestion_index', 
+                              'humidity', 'precip','windspeed', 'feelslike', 'visibility', 
+                              'pickup_hour', 'day_of_week','is_rush_hour', 'is_night_hour', 
+                              'target_yellow_lag_1h','target_yellow_lag_24h', 
+                              'target_green_lag_1h', 'target_green_lag_24h',
+                              'target_hvfhv_lag_1h', 'target_hvfhv_lag_24h',
+                              'target_yellow_city_hour_pickups_lag_1h',
+                              'target_green_city_hour_pickups_lag_1h', 'pulocationid',
+                              'target_hvfhv_city_hour_pickups_lag_1h',
+                              'neighbor_pickups_target_yellow_lag_1h',
+                              'neighbor_pickups_target_green_lag_1h',
+                              'neighbor_pickups_target_hvfhv_lag_1h','bin',
+                              'target_yellow', 'target_green', 'target_hvfhv']
+            
+            query = fg.select(final_features).filter(
+                (fg.get_feature('bin') >= start_date) & (fg.get_feature("bin") <= end_date))
 
-            # Get the feature group
-            fg = fs.get_feature_group(name="ridedemandprediction", version=1)
-            query=fg.select([
-                'bin',
-                'temp',
-                'humidity',
-                'pickup_hour',
-                'is_rush_hour',
-                'city_avg_speed',
-                'zone_avg_speed',
-                'zone_congestion_index',
-                'pickups_lag_1h',
-                'pulocationid',
-                'pickups_lag_24h',
-                'city_pickups_lag_1h',
-                'neighbor_pickups_lag_1h',
-                'pickups'
-            ]).filter((fg.datetime >= start_date) & (fg.datetime <= end_date))
-
-            # creating a feature view
             df = query.read()
-            logger.info('Feature data retrieved successfully from the feature store')
+            logger.info(f"Successfully retrieved {len(df)} rows for window: {start_date} to {end_date}")
 
-
-            # delete the previous month feature view data
-            #FeatureView.clean(feature_store_id=fs._id, 
-             #                   feature_view_name='ride_demand_fv',
-              #                  feature_view_version=1)
-
-            # create a new feature view from the feature group
-            #feature_view = fs.create_feature_view(name="ride_demand_fv",
-             #                                       version=1,
-              #                                      description="Features for ride demand prediction",
-               #                                     query=query)
-
-            #logger.info('hopsworks feature view created successfully')
-
-            # Materialize training dataset using Spark job
-            #version, jobs = feature_view.create_training_data(start_time = start_date,
-             #                                                   end_time = end_date,
-              #                                                  description="365 days ride demand training data",
-               #                                                 data_format="parquet",
-                #                                                write_options = {'use_spark': True}
-                 #                                               )
-
-            #logger.info('Training data created successfully and materialized in hopsworks')
-            #logger.info(f"Data from {start_date} to {end_date} created and materialized Successfully")
-
-            #feature_view = fs.get_feature_view(name='ride_demand_fv', version= 1)
-
-           # df, _ = feature_view.get_training_data(training_dataset_version=1,
-             #                                   read_options={"use_hive":False})
-            
-            #logger.info('Data successfully retrieved from the feature store')
-            
+            df.columns = df.columns.str.replace('nycdemandprediction_', '', regex=False)
             df.set_index(['bin'], inplace=True)
 
             return df
-        
+
         except Exception as e:
-            logger.error(f"Error retrieving the dataset, {e}")
+            logger.error(f"Failed to extract NYC demand prediction pickup data: {e}")
             raise RideDemandException(e,sys)
-        
-   # def feature_selection(self, df):
-    #    try:
-     #       final_features = [
-      #          'temp',
-       #         'humidity',
-        #        'pickup_hour',
-         #       'is_rush_hour',
-          #      'city_avg_speed',
-           #     'zone_avg_speed',
-            #    'zone_congestion_index',
-             #   'pickups_lag_1h',
-              #  'pulocationid',
-               # 'pickups_lag_24h',
-             #   'city_pickups_lag_1h',
-             #   'neighbor_pickups_lag_1h'
-           # ]
-
-            # 2. Adding the target variable to the list for the final dataframe
-           # target_column = 'pickups'
-
-            # 3. Checking if all columns exist in the dataframe to avoid KeyErrors
-           # available_cols = [col for col in final_features + [target_column] if col in df.columns]
-
-           # # 4. Create the final dataframe
-          #  df_final = df[available_cols].copy()
-
-            # Log what happened for debugging
-          #  missing_cols = set(final_features + [target_column]) - set(available_cols)
-         #   if missing_cols:
-          #      logger.warning(f"Missing columns from selection: {missing_cols}")
-
-          #  logger.info(f"Final feature set prepared with {len(available_cols) - 1} features.")
-
-          #  return df_final
-
-       # except Exception as e:
-        #    raise RideDemandException(e, sys)
-        
+       
     def split_data(self, df):
         try:
             # Split per zone
@@ -191,9 +113,9 @@ class ModelTrainer:
                 test_list.append(group.iloc[val_end:])
 
             # Concatenate all zones
-            train_df = pd.concat(train_list)
-            val_df = pd.concat(val_list)
-            test_df = pd.concat(test_list)
+            train_df = pd.concat(train_list).sort_index()
+            val_df = pd.concat(val_list).sort_index()
+            test_df = pd.concat(test_list).sort_index()
 
             logger.info(f"Data split successfully!")
             logger.info(f"Train split: {train_df.shape}")
@@ -206,43 +128,55 @@ class ModelTrainer:
             logger.error(f"Unable to split the dataset")
             raise RideDemandException(e, sys)
 
-    def _prepare_features(self, df:pd.DataFrame, target:str):
+    def _prepare_features(self, df: pd.DataFrame, 
+                      targets: list[str]=['target_yellow', 'target_green', 'target_hvfhv']):
+        """
+        Separates the dataframe into features (X) and targets (y), 
+        converts categorical types, and ensures only valid features are kept.
+        """
         try:
-            X = df.drop(columns=[target, 'pulocationid'], errors='ignore')
-            y = df[target]
+            #Separate targets and features
+            y = df[targets]
+            
+            # Define non-feature columns that should be dropped 
+            to_drop = targets + ['pickup_datetime', 'bin']
+            df.reset_index(inplace=True)
+            X = df.drop(columns=to_drop, errors='ignore')
 
+            #Handle Categorical Columns
             for col in self.cat_cols:
                 if col in X.columns:
                     X[col] = X[col].astype('category')
 
+            logger.info(f"Data Split into {X.shape}, {y.shape}")
             return X, y
-        
+
         except Exception as e:
-            logger.error(f"feature preparation failed, {e}")
+            logger.error(f"Feature preparation failed: {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self, train_df:pd.DataFrame, 
-                                    val_df:pd.DataFrame, 
+    def model_training_and_evaluation(self, train_df:pd.DataFrame,
+                                    val_df:pd.DataFrame,
                                     test_df:pd.DataFrame):
         try:
-            target = self.config.target_col
+            target = ['target_yellow', 'target_green', 'target_hvfhv']
 
             ## models for training data
-            models = {"catboost": CatBoostRegressor,
-                    "lgbm": LGBMRegressor,
+            models = {"lgbm": LGBMRegressor,
                     "xgboost": XGBRegressor,
-                    "random_forest": RandomForestRegressor,
+                    #"random_forest": RandomForestRegressor,
+                    #'catboost': CatBoostRegressor
                     }
 
             X_train, y_train = self._prepare_features(train_df, target)
             X_val, y_val = self._prepare_features(val_df, target)
             X_test, y_test = self._prepare_features(test_df, target)
-           
+
             # Model Training and Hyperparameter Tuning
             model_report, trained_models = evaluate_model(x_train=X_train, y_train=y_train,
                                             x_test=X_val, y_test=y_val, models=models,
                                             param_spaces=self.config.optuna_param_spaces,
-                                            n_trials=10)
+                                            n_trials=20)
 
             ## selecting and saving the best model
             result_df = pd.DataFrame(model_report).T.sort_values(by='rmse', ascending=True) ## converting report to dataframe
@@ -255,13 +189,14 @@ class ModelTrainer:
                 best_model_metrics = model_report[best_model_name]
 
             logger.info(f"{best_model_name} is the model with the best metrics")
-            return best_model, best_model_metrics
+            return best_model, best_model_metrics, X_test, y_test
 
         except Exception as e:
             logger.error(f"Model training and evaluation failed, {e}")
             raise RideDemandException(e,sys)
-
-    def save_model_to_model_store(self, model, model_metrics):
+        
+    def save_model_to_model_store(self, model, model_metrics, 
+                                  x_test, y_test):
         """ saving model to the artifact store """
         try:
             # saving model 
@@ -273,11 +208,19 @@ class ModelTrainer:
 
             ## saving the model to hopsworks model store
             logger.info('Saving the model to hopsworks model registry')
+            
+            # Define the input and output schema from your training data
+            input_schema = Schema(x_test)
+            output_schema = Schema(y_test)
+
+            # Create the Model Schema object
+            model_schema = ModelSchema(input_schema, output_schema)
             model_registry = self.project.get_model_registry()
 
-            model_hopsworks = model_registry.sklearn.create_model(
+            model_hopsworks = model_registry.python.create_model(
                 name="ride_demand_prediction_model",
                 metrics= model_metrics,
+                model_schema = model_schema,
                 description="Model to predict ride demand based on historical features."
             )
             model_hopsworks.save(model_dir)
@@ -287,3 +230,23 @@ class ModelTrainer:
         except Exception as e:
             logger.error(f'Failed to save the Best model to the model artifact store')
             raise RideDemandException(e,sys)
+        
+
+    def initiate_model_training(self):
+        try:
+            logger.info('Extracting the Training Data...')
+          #  logger.info('Model Training Configuration successfully loaded')
+
+            data = self.retrieve_engineered_feature()
+            train_df, val_df, test_df = self.split_data(data)
+            model, model_metric, x_test, y_test = self.model_training_and_evaluation(train_df, val_df, test_df)
+            self.save_model_to_model_store(model, model_metric, 
+                                                    x_test, y_test)
+
+            logger.info('Model Trained  and saved to model store Successfully')
+
+        except Exception as e:
+            logger.error(f'Unable to initiate model training, {e}')
+            raise RideDemandException(e,sys)
+
+
