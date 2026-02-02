@@ -10,3 +10,5 @@ data.csv/
 catboost_info/
 __pycache__/
 node_modules
+.vscode/
+*.pyc

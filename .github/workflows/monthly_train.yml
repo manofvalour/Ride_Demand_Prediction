@@ -1,0 +1,51 @@
+name: Monthly Model Retraining
+
+on:
+  schedule:
+    - cron: '0 0 7 * *'  # Runs at 00:00 on the 1st of every month
+  workflow_dispatch:      # Allows you to trigger a retrain manually
+
+permissions:
+  contents: write
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    # Increased timeout to 360 minutes (6 hours) for heavy training tasks
+    timeout-minutes: 360 
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Run Training Script
+        run: python training_pipeline.py
+        env:
+          # If your training script needs API keys (e.g., for weather data or S3)
+          API_KEY: ${{ secrets.NYC_WEATHER_API_KEY }}
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+
+     # - name: Run Validation Tests
+      #  run: |
+       #   # Ensure the new model actually works before committing
+        #  python -m pytest tests/test_model_accuracy.py
+
+      - name: Commit and Push New Model
+        run: |
+          git config --local user.email "ajalae2@gmail.com"
+          git config --local user.name "manofvalour"
+          # Add the model file and the updated metrics/logs
+          git add  artifacts/model_training/model/model.pkl
+          git commit -m "Monthly Retrain: New model version $(date +'%Y-%m')" || echo "No model changes detected"
+          git push

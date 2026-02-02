@@ -2,6 +2,11 @@ from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 import json
 import os
+import time
+import sys, os
+
+from prediction_pipeline import prediction
+
 
 app = FastAPI(title="NYC Ride Demand API")
 
@@ -25,6 +30,12 @@ async def root():
         "message": "NYC Demand API is active. Go to /api/demand to see data.",
         "endpoints": ["/api/demand", "/docs"]
     }
+@app.get("/api/predict")
+async def predict():
+    """Make prediction using predction_pipeline.py."""
+    
+    prediction()
+
 
 @app.get("/api/demand")
 async def get_demand_data():
@@ -32,7 +43,7 @@ async def get_demand_data():
     if not os.path.exists(DATA_FILE):
         raise HTTPException(
             status_code=404, 
-            detail=f"File {DATA_FILE} not found. Ensure the file is in the same folder as main.py"
+            detail=f"File {DATA_FILE} not found. Ensure prediction is made"
         )
     
     try:

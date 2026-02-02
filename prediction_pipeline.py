@@ -5,9 +5,8 @@ from src.DynamicPricingEngine.config.configuration import ConfigurationManager
 from src.DynamicPricingEngine.component.inference import Inference
 from time import time
 
-
-if __name__=="__main__":
     
+def prediction():
     STAGE_NAME = 'Prediction Stage'  
 
     try:
@@ -24,3 +23,6 @@ if __name__=="__main__":
 
     except Exception as e:
         raise RideDemandException(e,sys)
+    
+if __name__=="__main__":
+    prediction()

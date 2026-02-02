@@ -1,8 +1,6 @@
 ipython
 pandas
 numpy
-matplotlib
-seaborn
 flask
 dagshub
 mlflow <3

@@ -1,0 +1,43 @@
+name: NYC Feature Ingestion
+
+on:
+  schedule:
+    - cron: '0 0 5 * *'
+  workflow_dispatch:      # Manual trigger for backfilling data
+
+permissions:
+  contents: write
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
+
+      - name: Collect & Process Features
+        run: python collect_features.py
+        env:
+          NYC_DATA_TOKEN: ${{ secrets.NYC_DATA_TOKEN }}
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+
+
+      - name: Update Feature Store Registry
+        run: |
+          git config --local user.email "ajalae2@gmail.com"
+          git config --local user.name "manofvalour"
+          # We track the 'latest_ingestion_timestamp' to prevent duplicate runs
+          git add .
+          git diff --quiet && git diff --staged --quiet || (git commit -m "Ingest features: $(date +'%Y-%m-%d')" && git push)
