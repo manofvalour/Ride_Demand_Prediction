@@ -1,38 +1,163 @@
-.App {
-  text-align: center;
+/* app.css / index.css */
+
+/* ============================================
+   1. Base resets & typography
+   ============================================ */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 
-.App-logo {
-  height: 40vmin;
-  pointer-events: none;
+html {
+  scroll-behavior: smooth;
 }
 
-@media (prefers-reduced-motion: no-preference) {
-  .App-logo {
-    animation: App-logo-spin infinite 20s linear;
-  }
-}
-
-.App-header {
-  background-color: #282c34;
-  min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  font-size: calc(10px + 2vmin);
+body {
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  background: linear-gradient(to bottom right, #1e1b4b, #4c1d95, #0f172a);
   color: white;
+  min-height: 100vh;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-.App-link {
-  color: #61dafb;
+/* Display font for big titles / futuristic feel */
+.font-display {
+  font-family: 'Orbitron', monospace;
 }
 
-@keyframes App-logo-spin {
-  from {
-    transform: rotate(0deg);
-  }
-  to {
-    transform: rotate(360deg);
+/* ============================================
+   2. Custom animations (used heavily in the UI)
+   ============================================ */
+@keyframes slowPulse {
+  0%, 100% { opacity: 0.35; transform: scale(1); }
+  50%      { opacity: 0.75; transform: scale(1.08); }
+}
+
+@keyframes glowPulse {
+  0%, 100% { box-shadow: 0 0 20px 2px rgba(59, 130, 246, 0.4); }
+  50%      { box-shadow: 0 0 40px 8px rgba(168, 85, 247, 0.6); }
+}
+
+@keyframes float {
+  0%, 100% { transform: translateY(0); }
+  50%      { transform: translateY(-12px); }
+}
+
+@keyframes grow {
+  from { width: 0%; }
+  to   { width: var(--width, 100%); }
+}
+
+@keyframes fadeInUp {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ping-slow {
+  75%, 100% { transform: scale(2); opacity: 0; }
+}
+
+.animate-slow-pulse   { animation: slowPulse 10s ease-in-out infinite; }
+.animate-glow-pulse   { animation: glowPulse 3s ease-in-out infinite; }
+.animate-float        { animation: float 6s ease-in-out infinite; }
+.animate-grow         { animation: grow 1.8s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+.animate-fade-in-up   { animation: fadeInUp 0.9s ease-out forwards; }
+.animate-ping-slow    { animation: ping-slow 3s cubic-bezier(0, 0, 0.2, 1) infinite; }
+
+/* ============================================
+   3. Neon / glow utilities
+   ============================================ */
+.neon-cyan {
+  text-shadow: 0 0 10px #22d3ee, 0 0 20px #22d3ee, 0 0 40px #22d3ee;
+}
+
+.neon-purple {
+  text-shadow: 0 0 10px #a855f7, 0 0 20px #a855f7, 0 0 40px #a855f7;
+}
+
+.neon-glow-cyan {
+  box-shadow: 0 0 20px 4px rgba(34, 211, 238, 0.5);
+}
+
+.neon-glow-purple {
+  box-shadow: 0 0 20px 4px rgba(168, 85, 247, 0.5);
+}
+
+.glass {
+  background: rgba(30, 27, 75, 0.4);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(168, 85, 247, 0.18);
+}
+
+/* ============================================
+   4. Demand level color utilities
+   ============================================ */
+.demand-low    { --demand-color: #64748b; --demand-glow: rgba(100, 116, 139, 0.5); }
+.demand-medium { --demand-color: #fbbf24; --demand-glow: rgba(251, 191, 36, 0.6); }
+.demand-high   { --demand-color: #22d3ee; --demand-glow: rgba(34, 211, 238, 0.7); }
+.demand-surge  { --demand-color: #10b981; --demand-glow: rgba(16, 185, 129, 0.8); }
+
+.text-demand-low    { color: var(--demand-color); }
+.text-demand-medium { color: var(--demand-color); }
+.text-demand-high   { color: var(--demand-color); }
+.text-demand-surge  { color: var(--demand-color); }
+
+.shadow-demand-glow {
+  box-shadow: 0 0 25px var(--demand-glow);
+}
+
+/* Gradient text (used for main title) */
+.gradient-text {
+  background: linear-gradient(90deg, #22d3ee, #a855f7, #ec4899, #22d3ee);
+  background-size: 200% 200%;
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  animation: gradientFlow 12s ease infinite;
+}
+
+@keyframes gradientFlow {
+  0%   { background-position: 0% 50%; }
+  50%  { background-position: 100% 50%; }
+  100% { background-position: 0% 50%; }
+}
+
+/* ============================================
+   5. Scrollbar styling (modern dark look)
+   ============================================ */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(30, 27, 75, 0.4);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: linear-gradient(to bottom, #a855f7, #6366f1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(to bottom, #c084fc, #818cf8);
+}
+
+/* ============================================
+   6. Utility helpers
+   ============================================ */
+.bg-radial-glow {
+  background-image: 
+    radial-gradient(circle at 20% 30%, rgba(59,130,246,0.18), transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(168,85,247,0.14), transparent 50%);
+}
+
+@layer utilities {
+  .text-glow {
+    text-shadow: 0 0 8px currentColor;
   }
 }
