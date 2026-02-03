@@ -32,9 +32,9 @@ jobs:
         run: python prediction_pipeline.py
         env:
           # If your training script needs API keys (e.g., for weather data or S3)
-          API_KEY: "${{ secrets.API_KEY }}"
-          HOPSWORKS_API_KEY: "${{ secrets.HOPSWORKS_API_KEY }}"
-          NYC_OPEN_DATA_APP_TOKEN: "${{ secrets.NYC_OPEN_DATA_APP_TOKEN }}"
+          API_KEY: ${{ secrets.API_KEY }}
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+          NYC_OPEN_DATA_APP_TOKEN: ${{ secrets.NYC_OPEN_DATA_APP_TOKEN }}
 
       - name: Commit and Push changes
         run: |
