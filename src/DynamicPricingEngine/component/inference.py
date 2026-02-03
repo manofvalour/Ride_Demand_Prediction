@@ -47,8 +47,8 @@ class Inference:
     def __init__(self, config:InferenceConfig):
         try:
             self.config = config
-            self.weather_api_key = os.getenv('API_KEY')
-            hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
+            self.weather_api_key = os.getenv(API_KEY)
+            hopsworks_api = os.getenv(HOPSWORKS_API_KEY)
             self.ny_tz = ZoneInfo("America/New_York")
             self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=hopsworks_api)
 
@@ -314,7 +314,7 @@ class Inference:
 
     def get_zone_speeds(self, df):
         try:
-            app_token = os.getenv('NYC_OPEN_DATA_APP_TOKEN')
+            app_token = os.getenv(NYC_OPEN_DATA_APP_TOKEN)
 
             # Using a context manager ensures the session closes properly
             with Socrata("data.cityofnewyork.us", app_token) as client:
