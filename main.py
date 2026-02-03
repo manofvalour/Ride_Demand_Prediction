@@ -29,9 +29,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# FIXED: Pointing to the actual filename in your directory
-DATA_FILE = "artifacts/inference/predictions.json"
-
 @app.get("/")
 async def root():
     """Welcome message to confirm the server is running"""

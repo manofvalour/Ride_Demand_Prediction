@@ -1,0 +1,75 @@
+/* src/App.css */
+.appLayout { 
+    display: flex; 
+    flex-direction: column; 
+    height: 100vh; 
+    background: var(--bg); 
+    color: var(--text); 
+    font-family: 'Inter', sans-serif; 
+    overflow: hidden;
+}
+
+.header {
+    background: var(--surface);
+    padding: 0.75rem 1.5rem;
+    display: flex;
+    gap: 1.5rem;
+    border-bottom: 1px solid var(--border);
+    align-items: center;
+    z-index: 1001;
+}
+
+.clockSection { display: flex; flex-direction: column; min-width: 160px; }
+.liveClock { font-weight: 900; font-size: 1.1rem; color: var(--text); line-height: 1; }
+.liveDate { font-size: 0.65rem; font-weight: 700; color: var(--subtext); text-transform: uppercase; margin-top: 4px; }
+
+.counter {
+    padding-left: 15px; 
+    border-left: 2px solid var(--border);
+    display: flex; 
+    flex-direction: column;
+}
+
+.label { font-size: 0.6rem; color: var(--subtext); text-transform: uppercase; font-weight: 800; white-space: nowrap; }
+.value { color: var(--primary); font-size: 1rem; font-weight: 900; line-height: 1.2; }
+
+.mainContainer { display: flex; flex: 1; overflow: hidden; }
+
+.sidebar { 
+    width: 380px; 
+    background: var(--surface); 
+    border-right: 1px solid var(--border); 
+    display: flex; 
+    flex-direction: column; 
+    z-index: 1000; 
+}
+
+.controls { padding: 1rem; border-bottom: 1px solid var(--border); background: var(--bg); display: flex; flex-direction: column; gap: 10px; }
+
+.searchWrapper { position: relative; }
+.searchWrapper input {
+    width: 100%; padding: 10px 10px 10px 35px; border-radius: 8px; border: 1px solid var(--border);
+    font-size: 0.85rem; outline: none; background: var(--surface); color: var(--text);
+}
+.searchWrapper svg { position: absolute; left: 10px; top: 10px; color: var(--subtext); }
+
+.scrollArea { flex: 1; overflow-y: auto; padding: 1rem; background: var(--surface); }
+
+.card {
+    border: 1px solid var(--border);
+    border-radius: 12px; padding: 1rem; margin-bottom: 0.75rem;
+    cursor: pointer; background: var(--surface); transition: all 0.2s;
+}
+.card:hover { transform: translateY(-2px); background: var(--card-hover); }
+.activeCard { border: 2px solid var(--primary); background: var(--card-hover); }
+
+.statBox { padding: 6px; border-radius: 6px; text-align: center; font-size: 0.65rem; font-weight: 800; }
+.mapWrapper { flex: 1; background: #cbd5e1; position: relative; }
+
+/* Theme Variables */
+:global(.light) {
+    --primary: #4338ca; --bg: #f8fafc; --surface: #ffffff; --border: #e2e8f0; --text: #0f172a; --subtext: #64748b; --card-hover: #f1f5f9;
+}
+:global(.dark) {
+    --primary: #818cf8; --bg: #0f172a; --surface: #1e293b; --border: #334155; --text: #f8fafc; --subtext: #94a3b8; --card-hover: #334155;
+}
