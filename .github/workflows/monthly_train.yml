@@ -33,7 +33,7 @@ jobs:
         run: python training_pipeline.py
         env:
           # If your training script needs API keys (e.g., for weather data or S3)
-          API_KEY: ${{ secrets.NYC_WEATHER_API_KEY }}
+          API_KEY: ${{ secrets.API_KEY }}
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
 
      # - name: Run Validation Tests

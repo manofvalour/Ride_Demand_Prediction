@@ -30,7 +30,7 @@ jobs:
       - name: Collect & Process Features
         run: python collect_features.py
         env:
-          NYC_DATA_TOKEN: ${{ secrets.NYC_DATA_TOKEN }}
+          NYC_DATA_TOKEN: ${{ secrets.API_KEY }}
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
 
 
