@@ -2,7 +2,7 @@ name: Hourly NYC Prediction
 
 on:
   schedule:
-    - cron: '0 * * * *'  # Runs at the start of every hour
+    - cron: '55 * * * *'  # Runs at the start of every hour
   workflow_dispatch:      # Allows manual triggers
 
 # Permissions needed to commit changes back to the repo
@@ -40,6 +40,6 @@ jobs:
         run: |
           git config --local user.email "ajalae2@gmail.com"
           git config --local user.name "manofvalour"
-          git add artifacts/inference/predictions.json
+          git add .
           # Only commit if the file actually changed to avoid empty commits
           git diff --quiet && git diff --staged --quiet || (git commit -m "Auto-update NYC predictions: $(date)" && git push)
