@@ -6,7 +6,7 @@
     },
     {
       "source": "/(.*)",
-      "destination": "/templates/index.html"
+      "destination": "/public/index.html"
     }
   ]
 }
