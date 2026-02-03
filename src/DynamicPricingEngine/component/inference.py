@@ -49,6 +49,7 @@ class Inference:
             self.config = config
             self.weather_api_key = os.getenv('API_KEY')
             hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
+            logger.info(f"{hopsworks_api}")
             self.ny_tz = ZoneInfo("America/New_York")
             self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=hopsworks_api)
 
