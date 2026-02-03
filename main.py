@@ -98,7 +98,7 @@ async def get_demand_data():
         logger.error(f"Failed to extract NYC demand prediction pickup data: {e}")
         raise RideDemandException(e,sys)
     
-if __name__ == "__main__":
-    import uvicorn
+#if __name__ == "__main__":
+ #   import uvicorn
     # If running locally, this will start the server on port 8000
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+  #  uvicorn.run(app, host="0.0.0.0", port=8000)
