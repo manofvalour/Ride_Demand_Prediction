@@ -50,7 +50,7 @@ class Inference:
             self.weather_api_key = os.getenv('API_KEY')
             hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
             self.ny_tz = ZoneInfo("America/New_York")
-            self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=hopsworks_api)
+            self.project = hopsworks.login(project='RideDemandPrediction', api_key_value="NcHEEuOykeRfcSVT.aNYBF55fCS6cTaszedAXrUb2B6g9w0nY4Xw2FpJ18x2jf4GK0vWybzA9lzXjkr7C")
 
         #Cache neighbor dictionary
             self._neighbor_dict = None
