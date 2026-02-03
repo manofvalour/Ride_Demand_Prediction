@@ -25,22 +25,6 @@ from src.DynamicPricingEngine.exception.customexception import RideDemandExcepti
 from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
 from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
 
-
-#class PredictionRequest(BaseModel):
- #   datetime: str
-  #  pulocationid: int
-
-   # @field_validator('datetime', pre=True)
- #   def parse_datetime(self, v):
-  #      return pd.to_datetime(v)
-
-#    @field_validator('pulocationid')
- #   def check_pulocationid(self, v):
-  #      if not (1<=v<=263):
-   #         raise ValueError("PULocationID must be between 1-263")
-        
-    #    return v
-
 load_dotenv()
 
 class Inference:
@@ -314,7 +298,7 @@ class Inference:
 
     def get_zone_speeds(self, df):
         try:
-            app_token = os.getenv(NYC_OPEN_DATA_APP_TOKEN)
+            app_token = os.getenv("NYC_OPEN_DATA_APP_TOKEN")
 
             # Using a context manager ensures the session closes properly
             with Socrata("data.cityofnewyork.us", app_token) as client:
