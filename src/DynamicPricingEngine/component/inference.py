@@ -1,7 +1,6 @@
 import os, sys
 import numpy as np
 import pandas as pd
-from pydantic import BaseModel, field_validator
 import requests
 from dotenv import load_dotenv
 import hopsworks
@@ -44,19 +43,14 @@ from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipf
 
 load_dotenv()
 
-from src.DynamicPricingEngine.logger.logger import logger
-from src.DynamicPricingEngine.exception.customexception import RideDemandException
-from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
-from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
-
 class Inference:
     def __init__(self, config:InferenceConfig):
         try:
             self.config = config
             self.weather_api_key = os.getenv('API_KEY')
-            self.hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
+            hopsworks_api = os.getenv('HOPSWORKS_API_KEY')
             self.ny_tz = ZoneInfo("America/New_York")
-            self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=self.hopsworks_api)
+            self.project = hopsworks.login(project='RideDemandPrediction', api_key_value=hopsworks_api)
 
         #Cache neighbor dictionary
             self._neighbor_dict = None
