@@ -36,7 +36,7 @@ def get_demand_data():
 
         now = datetime.now(ny_tz)
         target_time = now.replace(tzinfo=None)
-        print(target_time)
+        logger.info(target_time)
 
         if target_time.minute < 35:
             pred_time = target_time.replace(minute=0, second=0, microsecond=0)
@@ -57,7 +57,7 @@ def get_demand_data():
         try:
             
             query = fg.select(final_features).filter(
-                (fg.get_feature('bin') > pred_time))
+                (fg.get_feature('bin') == pred_time))
 
             df = query.read()
             logger.info(f"Successfully retrieved {len(df)} rows for window: {pred_time}")
@@ -78,7 +78,7 @@ def get_demand_data():
         except:
             pred_time = target_time.replace(minute=0, second=0, microsecond=0)
             query = fg.select(final_features).filter(
-                (fg.get_feature('bin') > pred_time))
+                (fg.get_feature('bin') == pred_time))
 
             df = query.read()
             logger.info(f"Successfully retrieved {len(df)} rows for window: {pred_time}")
@@ -106,5 +106,6 @@ def get_demand_data():
 
 if __name__ == '__main__':
     # Default Flask port is 5000
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port)
+    app.run(debug=True, port=5000)
+   ## port = int(os.environ.get("PORT", 5000))
+   # app.run(host='0.0.0.0', port=port)
