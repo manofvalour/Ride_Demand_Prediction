@@ -653,7 +653,8 @@ class Inference:
                     version=1,
                     primary_key=['pulocationid', 'bin_str'],
                     event_time='bin',
-                    description="Logs of model predictions for evaluation"
+                    description="Logs of model predictions for evaluation",
+                    online_enabled=True
                 )
               
               data = pd.concat([pred, hist_data], axis=0)
