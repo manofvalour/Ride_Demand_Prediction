@@ -22,6 +22,7 @@
             --yel-bg: #fef9c3; --yel-text: #854d0e;
             --grn-bg: #dcfce7; --grn-text: #166534;
             --fhv-bg: #ede9fe; --fhv-text: #5b21b6;
+            --profit-bg: #dcfce7; --profit-text: #166534;
         }
 
         [data-theme="dark"] {
@@ -36,6 +37,7 @@
             --yel-bg: #422006; --yel-text: #fef08a;
             --grn-bg: #064e3b; --grn-text: #6ee7b7;
             --fhv-bg: #2e1065; --fhv-text: #ddd6fe;
+            --profit-bg: #064e3b; --profit-text: #6ee7b7;
         }
 
         body, html { height: 100%; margin: 0; font-family: 'Inter', sans-serif; overflow: hidden; background: var(--bg); color: var(--text); transition: background 0.3s, color 0.3s; }
@@ -98,7 +100,6 @@
         .status-medium { background: #fef3c7; color: #92400e; }
         .status-low { background: #dcfce7; color: #166534; }
 
-        /* Updated CSS for Positioning */
         .speed-label { 
             font-size: 0.65rem; 
             font-weight: 800; 
@@ -113,6 +114,7 @@
         .stat-yel { background: var(--yel-bg); color: var(--yel-text); }
         .stat-grn { background: var(--grn-bg); color: var(--grn-text); }
         .stat-fhv { background: var(--fhv-bg); color: var(--fhv-text); }
+        .stat-profit { background: var(--profit-bg); color: var(--profit-text); }
 
         .hover-tooltip { padding: 8px; font-family: 'Inter', sans-serif; line-height: 1.4; }
         .tooltip-title { font-weight: 800; font-size: 14px; display: block; margin-bottom: 4px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
@@ -126,6 +128,26 @@
         .clear-btn {
             font-size: 0.6rem; font-weight: 800; color: var(--primary); cursor: pointer;
             text-decoration: underline; float: right;
+        }
+
+        .nav-tabs {
+            display: flex;
+            background: var(--bg);
+            padding: 0 1rem;
+            border-bottom: 1px solid var(--border);
+        }
+        .nav-tab {
+            padding: 0.75rem 1rem;
+            font-size: 0.7rem;
+            font-weight: 800;
+            text-transform: uppercase;
+            cursor: pointer;
+            color: var(--subtext);
+            border-bottom: 2px solid transparent;
+        }
+        .nav-tab.active {
+            color: var(--primary);
+            border-bottom: 2px solid var(--primary);
         }
     </style>
 </head>
@@ -142,11 +164,11 @@
             <span id="cityTotalDemand" class="citywide-value">-- TRIPS</span>
         </div>
         <div class="citywide-counter">
-            <span class="citywide-label">Avg Speed</span>
+            <span class="citywide-label">City Avg Speed</span>
             <span id="cityAvgSpeed" class="citywide-value">-- MPH</span>
         </div>
         <div class="citywide-counter">
-            <span class="citywide-label">Congestion Index</span>
+            <span class="citywide-label">City Congestion Index</span>
             <span id="cityCongestion" class="citywide-value">--</span>
         </div>
         <div class="citywide-counter">
@@ -191,6 +213,12 @@
                     </select>
                 </div>
             </div>
+
+            <div class="nav-tabs">
+                <div class="nav-tab active" id="tab-demand" onclick="switchTab('demand')">Demand</div>
+                <div class="nav-tab" id="tab-profit" onclick="switchTab('profit')">Profitability</div>
+            </div>
+
             <div style="padding: 1rem 1rem 0.5rem 1rem; background: var(--bg); border-bottom: 1px solid var(--border);">
                 <div id="listTitleContainer">
                     <span id="listTitle" style="font-weight: 800; color: var(--primary); font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.05em;">Zone Analytics</span>
@@ -209,6 +237,7 @@
 
     let map, geoLayer, taxiData = {}, allFeatures = [];
     let selectedZoneId = null;
+    let currentTab = 'demand';
 
     const THRESHOLDS = { LOW: 0.0270, MEDIUM: 0.0421 };
 
@@ -256,6 +285,28 @@
 
     function getDemandColor(d) {
         return d > 200 ? '#312e81' : d > 120 ? '#4338ca' : d > 60 ? '#6366f1' : d > 20 ? '#a5b4fc' : d > 0 ? '#e0e7ff' : '#f1f5f9';
+    }
+
+    function getProfitColor(p) {
+        return p > 1500 ? '#064e3b' : p > 1000 ? '#059669' : p > 500 ? '#34d399' : p > 200 ? '#a7f3d0' : p > 0 ? '#ecfdf5' : '#f1f5f9';
+    }
+
+    function switchTab(tab) {
+        currentTab = tab;
+        document.getElementById('tab-demand').classList.toggle('active', tab === 'demand');
+        document.getElementById('tab-profit').classList.toggle('active', tab === 'profit');
+        updateDashboard();
+        if(geoLayer) geoLayer.setStyle(f => {
+            const id = f.properties.location_id || f.properties.OBJECTID;
+            const stats = taxiData[id] || { target_yellow: 0, target_green: 0, target_hvfhv: 0, zone_congestion_index: 0 };
+            const total = stats.target_yellow + stats.target_green + stats.target_hvfhv;
+            if (currentTab === 'demand') {
+                return { fillColor: getDemandColor(total) };
+            } else {
+                const profit = total / (stats.zone_congestion_index + 0.1);
+                return { fillColor: getProfitColor(profit) };
+            }
+        });
     }
 
     async function init() {
@@ -339,7 +390,7 @@
                 const matchesSearch = f.properties.zone.toLowerCase().includes(sQuery);
                 return matchesBorough && matchesSearch;
             });
-            listTitle.innerText = `Top ${Math.min(filtered.length, 20)} Results`;
+            listTitle.innerText = currentTab === 'demand' ? `Top ${Math.min(filtered.length, 20)} Demand` : `Top Profitability Zones`;
             clearBtn.style.display = 'none';
         }
 
@@ -347,15 +398,35 @@
             const id = f.properties.location_id || f.properties.OBJECTID;
             const stats = taxiData[id] || { target_yellow: 0, target_green: 0, target_hvfhv: 0, zone_congestion_index: 0 };
             const total = stats.target_yellow + stats.target_green + stats.target_hvfhv;
-            return { f, total, id, stats };
+            const profitScore = (total / (stats.zone_congestion_index + 0.1)).toFixed(0);
+            return { f, total, id, stats, profitScore };
         });
 
-        if (!selectedZoneId) data.sort((a, b) => b.total - a.total);
+        if (!selectedZoneId) {
+            if (currentTab === 'demand') data.sort((a, b) => b.total - a.total);
+            else data.sort((a, b) => b.profitScore - a.profitScore);
+        }
+
         const displayData = selectedZoneId ? data : data.slice(0, 20);
 
         list.innerHTML = displayData.map(item => {
             const cong = getCongestionLevel(item.stats.zone_congestion_index);
             const zoneSpeed = calculateSpeedFromIndex(item.stats.zone_congestion_index);
+            
+            let statsHtml = `
+                <div class="demand-row">
+                    <div class="stat-box stat-yel">YEL: ${Math.round(item.stats.target_yellow)}</div>
+                    <div class="stat-box stat-grn">GRN: ${Math.round(item.stats.target_green)}</div>
+                    <div class="stat-box stat-fhv">FHV: ${Math.round(item.stats.target_hvfhv)}</div>
+                </div>`;
+
+            if (currentTab === 'profit') {
+                statsHtml = `
+                <div class="demand-row" style="grid-template-columns: 1fr;">
+                    <div class="stat-box stat-profit">PROFITABILITY SCORE: ${item.profitScore}</div>
+                </div>`;
+            }
+
             return `
                 <div class="detail-card ${selectedZoneId == item.id ? 'active' : ''}" id="card-${item.id}" onclick="focusZone('${item.id}')">
                     <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -372,11 +443,7 @@
                             <div class="speed-label">${zoneSpeed} MPH</div>
                         </div>
                     </div>
-                    <div class="demand-row">
-                        <div class="stat-box stat-yel">YEL: ${Math.round(item.stats.target_yellow)}</div>
-                        <div class="stat-box stat-grn">GRN: ${Math.round(item.stats.target_green)}</div>
-                        <div class="stat-box stat-fhv">FHV: ${Math.round(item.stats.target_hvfhv)}</div>
-                    </div>
+                    ${statsHtml}
                 </div>`;
         }).join('');
     }
@@ -385,8 +452,18 @@
         geoLayer = L.geoJson(geoData, {
             style: (f) => {
                 const id = f.properties.location_id || f.properties.OBJECTID;
-                const total = (taxiData[id]?.target_yellow || 0) + (taxiData[id]?.target_green || 0) + (taxiData[id]?.target_hvfhv || 0);
-                return { fillColor: getDemandColor(total), fillOpacity: 0.7, weight: 1, color: 'white' };
+                const stats = taxiData[id] || { target_yellow: 0, target_green: 0, target_hvfhv: 0, zone_congestion_index: 0 };
+                const total = stats.target_yellow + stats.target_green + stats.target_hvfhv;
+                
+                let color;
+                if(currentTab === 'demand') {
+                    color = getDemandColor(total);
+                } else {
+                    const profit = total / (stats.zone_congestion_index + 0.1);
+                    color = getProfitColor(profit);
+                }
+                
+                return { fillColor: color, fillOpacity: 0.7, weight: 1, color: 'white' };
             },
             onEachFeature: (f, layer) => {
                 const id = f.properties.location_id || f.properties.OBJECTID;
@@ -396,6 +473,8 @@
                         const total = d.target_yellow + d.target_green + d.target_hvfhv;
                         const cong = getCongestionLevel(d.zone_congestion_index);
                         const zoneSpeed = calculateSpeedFromIndex(d.zone_congestion_index);
+                        const profit = (total / (d.zone_congestion_index + 0.1)).toFixed(0);
+                        
                         layer.setStyle({ weight: 3, color: '#4338ca', fillOpacity: 0.8 });
                         layer.bindTooltip(`
                             <div class="hover-tooltip">
@@ -403,7 +482,7 @@
                                 <div class="congestion-indicator ${cong.class}" style="margin-bottom:8px">${cong.label} Congestion</div><br>
                                 <span class="tooltip-stat">Avg Speed: <span class="tooltip-value" style="color:var(--speed-text)">${zoneSpeed} MPH</span></span><br>
                                 <span class="tooltip-stat">Live Demand: <span class="tooltip-value">${Math.round(total)} trips</span></span><br>
-                                <span class="tooltip-stat">Congestion Index: <span class="tooltip-value">${(d.zone_congestion_index || 0).toFixed(3)}</span></span>
+                                <span class="tooltip-stat">Profitability: <span class="tooltip-value">${profit} Score</span></span>
                             </div>`, { sticky: true }).openTooltip();
                     },
                     mouseout: (e) => { geoLayer.resetStyle(e.target); },
