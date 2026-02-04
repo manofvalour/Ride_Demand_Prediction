@@ -585,24 +585,6 @@ class Inference:
             results= results.reset_index(drop=False)
             results = pd.concat([results, pred], axis=1)
             results['bin'] = results['bin'].astype(str)
-            predictions_dict = results.set_index('pulocationid').to_dict(orient='index')
-
-            final_output = {
-                "metadata": {
-                    "generated_at": datetime.now(self.ny_tz).isoformat(),
-                    "total_zones": len(results),
-                    "prediction_window": results['bin'].iloc[0] if 'bin' in results.columns else "Unknown"
-                },
-                "predictions": predictions_dict
-            }
-
-            # Saving the JSON file
-            with open(self.config.predictions_output_path, 'w') as f:
-                json.dump(final_output, f, indent=4)
-            
-            logger.info(f"Successfully saved to {self.config.predictions_output_path}")
-
-            logger.info('Prediction completed!')
 
             return results
         
