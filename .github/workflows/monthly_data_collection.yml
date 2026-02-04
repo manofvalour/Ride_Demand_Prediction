@@ -2,7 +2,7 @@ name: NYC Feature Ingestion
 
 on:
   schedule:
-    - cron: '0 0 5 * *'
+    - cron: '0 0 8 * *'
   workflow_dispatch:      # Manual trigger for backfilling data
 
 permissions:
