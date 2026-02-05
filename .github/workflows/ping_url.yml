@@ -2,9 +2,8 @@ name: Keep Render Alive
 
 on:
   # This replaces the 'schedule' section
-  repository_dispatch:
+  workflow_dispatch:
     types: [easycron_job]
-  workflow_dispatch:      # Keep this so you can still run it manually for testing
 
 permissions:
   contents: write
