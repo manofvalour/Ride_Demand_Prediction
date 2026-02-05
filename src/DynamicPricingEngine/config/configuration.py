@@ -1,22 +1,34 @@
 #from src.DynamicPricingEngine.component import data_transformation
+"""Configuration manager to build typed config objects from YAML.
+
+`ConfigurationManager` reads top-level YAML files and returns typed
+configuration dataclasses used across ingestion, transformation,
+training and inference pipelines.
+"""
+
 from src.DynamicPricingEngine.utils.common_utils import create_dir, read_yaml
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import (DataIngestionConfig,
                                                            DataTransformationConfig,
                                                            ModelTrainerConfig,
-                                                           DataValidationConfig,
                                                            InferenceConfig)
 from src.DynamicPricingEngine.constants import *
 
 from pathlib import Path
-import os, sys
+import sys
 
 ## Defining the configuration manager
 
 class ConfigurationManager:
-    def __init__(self, config_path:Path = CONFIG_FILE_PATH,
-                 params_path:Path = PARAMS_FILE_PATH):
+    """Load YAML configuration and provide typed configuration objects.
+
+    Args:
+        config_path (Path): Path to the main config YAML.
+        params_path (Path): Path to parameter YAML for ML settings.
+    """
+    def __init__(self, config_path: Path = CONFIG_FILE_PATH,
+                 params_path: Path = PARAMS_FILE_PATH):
         try:
             self.config = read_yaml(config_path)
             self.params = read_yaml(params_path)
@@ -28,11 +40,16 @@ class ConfigurationManager:
             logger.info(f"Artifacts root directory successfully created: {artifact_root}")            
 
         except Exception as e:
-            logger.error(f"failed to create the artifacts root directory")
+            logger.error("failed to create the artifacts root directory")
             raise RideDemandException(e,sys)
         
 
-    def get_data_ingestion_config(self)-> DataIngestionConfig:
+    def get_data_ingestion_config(self) -> DataIngestionConfig:
+        """Return a `DataIngestionConfig` constructed from YAML.
+
+        Ensures the artifact directories exist before returning the
+        configuration object.
+        """
         config = self.config.data_ingestion
 
         try:
@@ -53,7 +70,9 @@ class ConfigurationManager:
             logger.error("Cannot get the data ingestion config", e)
             raise RideDemandException(e,sys)
         
-    def get_data_transformation_config(self)-> DataTransformationConfig:
+    def get_data_transformation_config(self) -> DataTransformationConfig:
+        """Return a `DataTransformationConfig` built from YAML entries.
+        """
         config = self.config.data_transformation
         ingestconfig = self.config.data_ingestion
 
@@ -77,7 +96,9 @@ class ConfigurationManager:
             logger.error("Cannot load the data ingestion config", e)
             raise RideDemandException(e,sys)
 
-    def get_model_trainer_config(self)-> ModelTrainerConfig:
+    def get_model_trainer_config(self) -> ModelTrainerConfig:
+        """Return a `ModelTrainerConfig` describing training paths and params.
+        """
         try:
             config = self.config.model_training
             params = self.params.ml_params
@@ -104,6 +125,8 @@ class ConfigurationManager:
             raise RideDemandException(e,sys)
         
     def get_inference_config(self) -> InferenceConfig:
+        """Return an `InferenceConfig` including shapefile and model paths.
+        """
         config = self.config.inference
         data_ingestion_config= self.config.data_ingestion
 

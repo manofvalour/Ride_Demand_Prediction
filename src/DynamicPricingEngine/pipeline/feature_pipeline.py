@@ -1,3 +1,10 @@
+"""Pipelines orchestrations for feature ingestion and transformation.
+
+Provides a simple `FeaturePipeline` which runs ingestion and
+transformation end-to-end and persists the transformed features to
+the feature store.
+"""
+
 import sys
 
 from src.DynamicPricingEngine.component.data_ingestion import DataIngestion
@@ -5,14 +12,15 @@ from src.DynamicPricingEngine.component.data_transformation import DataTransform
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.config.configuration import ConfigurationManager
-from src.DynamicPricingEngine.component.ingest_training_data import ExtractTrainingData
+
 
 class FeaturePipeline:
+    """Orchestrates the ingestion -> transformation workflow."""
     def __init__(self):
         pass
 
     def initiate_data_ingestion_and_transformation(self):
-        """ Function to Initiate the data ingestion and transformation class """
+        """Run ingestion and feature engineering and persist artifacts."""
         try:
 
             logger.info('initiating data ingestion')
@@ -33,7 +41,7 @@ class FeaturePipeline:
             data_transformation = DataTransformation(data_transformation_config)
             data_transformation.initiate_feature_engineering()
 
-            logger.info(f"Data Transformation pipeline completed")
+            logger.info("Data Transformation pipeline completed")
 
         except Exception as e:
             logger.error(f"Failed to initiate data transformation, {e}")

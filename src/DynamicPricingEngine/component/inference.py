@@ -1,4 +1,13 @@
-import os, sys
+"""Inference utilities for building prediction inputs and producing forecasts.
+
+The `Inference` class handles live weather retrieval, historical feature
+extraction, neighbor and congestion feature construction, model
+download/loading, and producing predictions to push back to the feature
+store.
+"""
+
+import os
+import sys
 import numpy as np
 import pandas as pd
 import requests
@@ -7,16 +16,12 @@ import hopsworks
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta, datetime
 from zoneinfo import ZoneInfo
-from hsfs.feature import Feature
-import zipfile
-import io
 import geopandas as gpd
 import pickle
 from sodapy import Socrata
 import joblib
 import time
-import json
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, retry_if_exception_message
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 load_dotenv()
 
@@ -28,6 +33,12 @@ from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipf
 load_dotenv()
 
 class Inference:
+    """Assemble features for real-time prediction and run the trained model.
+
+    Args:
+        config (InferenceConfig): Configuration holding URLs, paths, and
+            shapefile locations used during preparation.
+    """
     def __init__(self, config:InferenceConfig):
         try:
             self.config = config
@@ -45,6 +56,10 @@ class Inference:
             raise e
 
     def _get_neighbor_dict(self) -> dict:
+        """Compute or load a mapping of zone -> neighboring zones.
+
+        The mapping is persisted to disk in `self._neighbor_cache_path`.
+        """
         if self._neighbor_dict is not None:
             return self._neighbor_dict
 
@@ -90,6 +105,12 @@ class Inference:
 
     
     def get_nyc_prediction_weather_data(self) -> pd.DataFrame:
+        """Fetch current hourly weather conditions used for prediction.
+
+        Returns a one-row DataFrame containing the latest weather metrics
+        (`humidity`, `precip`, `windspeed`, `feelslike`, `visibility`)
+        aligned to an hourly `datetime` bin.
+        """
         try:
             api_key = self.weather_api_key
             location = "New York, NY, United States"
@@ -133,7 +154,7 @@ class Inference:
             # Localizing to UTC before flooring to make it timezone-aware
             df_hours['datetime'] = pd.to_datetime(today_date + ' ' + df_hours['datetime']).dt.tz_localize('UTC').dt.floor('H') + timedelta(hours=1)
 
-            logger.info(f"Successfully retrieved weather data.")
+            logger.info("Successfully retrieved weather data.")
             return df_hours
 
         except Exception as e:
@@ -141,7 +162,12 @@ class Inference:
             raise RideDemandException(e,sys)    
         
 
-    def engineer_temporal_prediction_features(self, weather_df: pd.DataFrame)-> pd.DataFrame:
+    def engineer_temporal_prediction_features(self, weather_df: pd.DataFrame) -> pd.DataFrame:
+        """Create temporal flags required by the prediction model.
+
+        Adds `pickup_hour`, `is_rush_hour`, `pickup_month`, `day_of_week`,
+        and `is_night_hour` fields and renames `datetime` to `bin`.
+        """
         try:
             # Extract temporal features
             weather_df['pickup_hour'] = weather_df['datetime'].dt.hour
@@ -159,6 +185,12 @@ class Inference:
             raise RideDemandException(e,sys)
     
     def extract_historical_pickup_data(self) -> pd.DataFrame:
+        """Retrieve recent historical feature windows from the feature store.
+
+        Tries to fetch a short-term 24-hour window from a real-time
+        prediction feature group and falls back to a 1-year historical
+        sample if recent data is absent.
+        """
         try:
             final_features = ['pickup_month', 'humidity', 'precip','windspeed', 'feelslike', 'visibility',
                                 'pickup_hour', 'day_of_week','is_rush_hour', 'is_night_hour',
@@ -220,27 +252,31 @@ class Inference:
 
 
     def citywide_hourly_demand(self, df: pd.DataFrame) -> pd.DataFrame:
-      try:
-          services = ['target_yellow', 'target_green', 'target_hvfhv']
-              
-          #Aggregate citywide pickups per hour
-          for s in services:
-              city_demand = (
-                  df.groupby('bin')[s]
-                  .sum()
-                  .reset_index()
-                  .rename(columns={s: f'{s}_city_hour_pickups'})
-              )
-              # Merge back into main df
-              df = df.merge(city_demand, on='bin', how='left')
-              
-          return df
+        """Aggregate citywide hourly pickup counts and attach to `df`.
+        """
+        try:
+            services = ['target_yellow', 'target_green', 'target_hvfhv']
+                
+            #Aggregate citywide pickups per hour
+            for s in services:
+                city_demand = (
+                    df.groupby('bin')[s]
+                    .sum()
+                    .reset_index()
+                    .rename(columns={s: f'{s}_city_hour_pickups'})
+                )
+                # Merge back into main df
+                df = df.merge(city_demand, on='bin', how='left')
+                
+            return df
 
-      except Exception as e:
-          logger.error("Unable to engineer citywide hourly demand features")
-          raise RideDemandException(e,sys)
+        except Exception as e:
+            logger.error("Unable to engineer citywide hourly demand features")
+            raise RideDemandException(e,sys)
 
     def generate_neighbor_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Compute neighbor pickup aggregates for each zone and hour.
+        """
         try:
             neighbor_dict = self._get_neighbor_dict()
 
@@ -297,6 +333,11 @@ class Inference:
         
 
     def get_zone_speeds(self, df):
+        """Estimate zone-level average speeds using NYC speed feeds.
+
+        Uses a Socrata dataset as the primary source and falls back to
+        borough averages when zone-level links are not found.
+        """
         try:
             app_token = os.getenv("NYC_OPEN_DATA_APP_TOKEN")
 
@@ -349,6 +390,11 @@ class Inference:
         
 
     def congestion_features(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Compute city and zone congestion indices from speeds.
+
+        Returns the dataframe with `city_congestion_index` and
+        `zone_congestion_index` populated.
+        """
         try:
             # Compute citywide average speed per hour            
             city_avg_speed = (
@@ -383,8 +429,11 @@ class Inference:
             logger.error("Unable to generate zone-level features")
             raise RideDemandException(e,sys)
     
-    def engineer_autoregressive_signals(self, hist_df: pd.DataFrame, 
-                                        pred_df:pd.DataFrame) -> pd.DataFrame:
+    def engineer_autoregressive_signals(self, hist_df: pd.DataFrame,
+                                        pred_df: pd.DataFrame) -> pd.DataFrame:
+        """Concatenate historical and candidate prediction rows and
+        compute lag features used by the model.
+        """
         try:
 
             # Define the three targets we are tracking
@@ -451,6 +500,11 @@ class Inference:
             raise RideDemandException(e,sys)
             
     def final_data(self, df):
+        """Finalize and filter the dataframe to the prediction target hour.
+
+        Cleans unnecessary columns, sets the index to `bin` and returns
+        rows corresponding to the next prediction window.
+        """
         try:
             df = df.sort_values(by=['pulocationid', 'bin'])
             df['bin'] = pd.to_datetime(df['bin'], utc=True) #Ensure it's datetime
@@ -489,54 +543,64 @@ class Inference:
             raise RideDemandException(e,sys)
 
     def download_model_and_load(self):
-    # Attempt the connection/download up to 3 times
-      for attempt in range(3):
-          try:
-              mr = self.project.get_model_registry()
+        """Download the best registered model from the model registry and load it.
 
-              #Get metadata and download files
-              model_meta = mr.get_best_model("ride_demand_prediction_model", metric = 'rmse', direction='min')
+        Attempts to find common serialized filenames and returns a loaded
+        scikit-learn compatible model object.
+        """
+        # Attempt the connection/download up to 3 times
+        for attempt in range(3):
+            try:
+                mr = self.project.get_model_registry()
 
-              print(f"Attempt {attempt + 1}: Downloading model...")
-              model_dir = model_meta.download() # This is the root directory of the downloaded artifacts
+                #Get metadata and download files
+                model_meta = mr.get_best_model("ride_demand_prediction_model", metric = 'rmse', direction='min')
 
-              # Identify and Load the actual model file
-              possible_model_names = ["model.pkl", "model.joblib", "ride_demand_prediction_model.pkl"]
-              found_model_file = None
+                print(f"Attempt {attempt + 1}: Downloading model...")
+                model_dir = model_meta.download() # This is the root directory of the downloaded artifacts
 
-              # Check the root of the downloaded directory first
-              for name in possible_model_names:
-                  potential_path = os.path.join(model_dir, name)
-                  if os.path.exists(potential_path):
-                      found_model_file = potential_path
-                      break
+                # Identify and Load the actual model file
+                possible_model_names = ["model.pkl", "model.joblib", "ride_demand_prediction_model.pkl"]
+                found_model_file = None
 
-              # checking a common 'model' subdirectory (e.g., for MLflow-saved models)
-              if found_model_file is None:
-                  model_subdir = os.path.join(model_dir, "model") # Common MLflow subdirectory
-                  for name in possible_model_names:
-                      potential_path = os.path.join(model_subdir, name)
-                      if os.path.exists(potential_path):
-                          found_model_file = potential_path
-                          break
+                # Check the root of the downloaded directory first
+                for name in possible_model_names:
+                    potential_path = os.path.join(model_dir, name)
+                    if os.path.exists(potential_path):
+                        found_model_file = potential_path
+                        break
 
-              if found_model_file is None:
-                  raise FileNotFoundError(f"No model file found in '{model_dir}' or its 'model' subdirectory with expected names.")
+                # checking a common 'model' subdirectory (e.g., for MLflow-saved models)
+                if found_model_file is None:
+                    model_subdir = os.path.join(model_dir, "model") # Common MLflow subdirectory
+                    for name in possible_model_names:
+                        potential_path = os.path.join(model_subdir, name)
+                        if os.path.exists(potential_path):
+                            found_model_file = potential_path
+                            break
 
-              loaded_model = joblib.load(found_model_file)
-              logger.info(f"Model loaded successfully from: {found_model_file}")
+                if found_model_file is None:
+                    raise FileNotFoundError(f"No model file found in '{model_dir}' or its 'model' subdirectory with expected names.")
 
-              return loaded_model
+                loaded_model = joblib.load(found_model_file)
+                logger.info(f"Model loaded successfully from: {found_model_file}")
 
-          except (ConnectionError, Exception) as e:
-              logger.error(f"Attempt {attempt + 1} failed: {e}")
-              if attempt < 2:
-                  time.sleep(5) # Wait 5 seconds before retrying
-              else:
-                  logger.error(f"unable to load the model from hopsworks, {e}")
-                  raise RideDemandException(e, sys)
+                return loaded_model
+
+            except (ConnectionError, Exception) as e:
+                logger.error(f"Attempt {attempt + 1} failed: {e}")
+                if attempt < 2:
+                    time.sleep(5) # Wait 5 seconds before retrying
+                else:
+                    logger.error(f"unable to load the model from hopsworks, {e}")
+                    raise RideDemandException(e, sys)
 
     def prepare_and_predict(self, model, final_df):
+        """Prepare features in the same order used for training and run predictions.
+
+        Converts categorical columns to `category`, runs `model.predict`
+        and returns a readable dataframe with rounded integer predictions.
+        """
         try:
             #Definining the EXACT feature list used during training
             final_features = ['pickup_month', 'city_congestion_index', 'zone_congestion_index', 
@@ -600,7 +664,12 @@ class Inference:
         before_sleep=lambda retry_state: print(f"Retrying Hopsworks push... Attempt {retry_state.attempt_number}"),
         reraise=True)
       
-    def push_prediction_to_feature_store(self, pred, hist_data)-> None:
+    def push_prediction_to_feature_store(self, pred, hist_data) -> None:
+        """Type-cast and push predictions back into the Hopsworks feature group.
+
+        Handles creation of the feature group on first-run and uses retries
+        to handle transient FS failures.
+        """
         try:
             type_mapping = {
                 'bin': 'datetime64[ns]', 'is_rush_hour': 'int8',
@@ -668,7 +737,14 @@ class Inference:
             raise  RideDemandException(e,sys)
 
 
-    def initiate_inference(self)-> pd.DataFrame:
+    def initiate_inference(self) -> pd.DataFrame:
+        """Run the full inference pipeline end-to-end.
+
+        This method fetches live weather, constructs prediction rows,
+        enriches them with historical signals, loads the model, runs
+        `prepare_and_predict`, and persists predictions back to the
+        feature store.
+        """
         try:
 
             logger.info('Extracting the prediction Data...')

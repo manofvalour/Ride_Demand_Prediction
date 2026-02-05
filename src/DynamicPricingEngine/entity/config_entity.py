@@ -1,3 +1,9 @@
+"""Typed dataclasses for configuration objects used across pipelines.
+
+Each dataclass represents the configuration required for a pipeline
+stage (ingestion, transformation, training, inference).
+"""
+
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -5,6 +11,7 @@ from pathlib import Path
 ################################# DATA INGESTION ####################################
 @dataclass
 class DataIngestionConfig:
+    """Configuration for data ingestion paths and external URLs."""
     root_dir: Path
     taxi_data_url: Path
     weather_data_url: Path
@@ -13,6 +20,7 @@ class DataIngestionConfig:
 
 @dataclass
 class DataTransformationConfig:
+    """Configuration for feature engineering and shapefile locations."""
     root_dir: Path
     feature_store_url_path: Path
     shapefile_dir: Path
@@ -23,11 +31,13 @@ class DataTransformationConfig:
 
 @dataclass
 class DataValidationConfig:
+    """Placeholder configuration for data validation steps."""
     pass
 
 
 @dataclass
 class ModelTrainerConfig:
+    """Configuration for training: paths, splits and Optuna spaces."""
     root_dir: Path
     train_data_path: Path
     val_data_path: Path
@@ -41,6 +51,7 @@ class ModelTrainerConfig:
 ################################# INFERENCE CONFIGURATION ####################################
 @dataclass
 class InferenceConfig:
+    """Configuration used during inference: shapefiles, model/location paths."""
     root_dir: Path
     input_data_path: Path
     model_path: Path

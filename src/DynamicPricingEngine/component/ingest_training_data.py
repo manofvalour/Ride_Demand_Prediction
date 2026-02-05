@@ -1,29 +1,35 @@
-## creating a function to ingest 12 months of dataset and storing them seperately per month
+"""Utilities to extract and persist historical training data month-by-month.
+
+This module provides `ExtractTrainingData` which downloads monthly taxi
+and weather data for a specified date range and saves each month's data
+as separate artifacts for use in training.
+"""
 import requests
 from bs4 import BeautifulSoup
 import re
 from datetime import datetime, timedelta
-import io
 import time
-from typing import List
 import pandas as pd
-import os,sys
+import os
+import sys
 
 from dotenv import load_dotenv
 load_dotenv()
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
-from src.DynamicPricingEngine.utils.common_utils import create_dir, read_yaml
 from src.DynamicPricingEngine.entity.config_entity import DataIngestionConfig
-from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class ExtractTrainingData:
-    """
-    Extract the whole training Data needed for the model 
-    """
-    def __init__(self,config: DataIngestionConfig,
-                 start_date:str, end_date:str):
+  """Download and save monthly slices of taxi and weather data.
+
+  Args:
+    config (DataIngestionConfig): Paths and directories to save files.
+    start_date (str): ISO date string for the start (YYYY-MM-DD).
+    end_date (str): ISO date string for the end (YYYY-MM-DD).
+  """
+  def __init__(self, config: DataIngestionConfig,
+         start_date: str, end_date: str):
       
       self.start_date = datetime.strptime(start_date, "%Y-%m-%d")
       self.end_date = datetime.strptime(end_date, "%Y-%m-%d")
@@ -37,64 +43,75 @@ class ExtractTrainingData:
       self.weather_data_url = "https://weather.visualcrossing.com/VisualCrossingWebServices/rest/services/timeline"
       self.api_key = os.getenv('API_KEY')
 
-    def extract_nyc_yellow_taxi_data(self):
-      taxi_data_url = self.taxi_data_url
-      taxi_data_date = self.start_date
-      end_date =self.end_date
+  def extract_nyc_yellow_taxi_data(self):
+    """Iterate month-by-month and download yellow taxi data files.
 
-      try:
+      Saves each month's parquet slice under `self.taxi_path` with a
+      descriptive filename. Uses the public NYC TLC data page to find
+      the parquet URLs.
+      """
+    taxi_data_url = self.taxi_data_url
+    taxi_data_date = self.start_date
+    end_date =self.end_date
 
-        # Send GET request
-        while taxi_data_date <= end_date:
-          month_end = taxi_data_date + timedelta(days=32)
-          taxi_data_month_end = month_end.replace(day=1) - timedelta(days=1)
-          print(f"Downloading data from {taxi_data_date} to {taxi_data_month_end}")
+    try:
 
-          taxi_data_next_month = month_end.replace(day=1)
+      # Send GET request
+      while taxi_data_date <= end_date:
+        month_end = taxi_data_date + timedelta(days=32)
+        taxi_data_month_end = month_end.replace(day=1) - timedelta(days=1)
+        print(f"Downloading data from {taxi_data_date} to {taxi_data_month_end}")
 
-          response = requests.get(taxi_data_url)
-          soup = BeautifulSoup(response.content, "html.parser")
+        taxi_data_next_month = month_end.replace(day=1)
 
-          # Regex pattern to match Yellow Taxi files with date
-          pattern = re.compile(r"(yellow_tripdata_)(\d{4}-\d{2})\.parquet", re.IGNORECASE)
+        response = requests.get(taxi_data_url)
+        soup = BeautifulSoup(response.content, "html.parser")
 
-          # Loop through all links
-          data= None
-          for link in soup.find_all("a", href=True):
-              href = link["href"]
-              match = pattern.search(href)
-              if match:
-                  date_str = match.group(2)
-                  file_date = datetime.strptime(date_str, "%Y-%m")
-                  if file_date == taxi_data_date:
-                      full_url = href if href.startswith("http") else f"https://www.nyc.gov{href}"
-                      print(f"Downloading data {date_str} from {full_url}")
-                      cols = ["tpep_pickup_datetime","tpep_dropoff_datetime",
-                              "PULocationID","DOLocationID","trip_distance"]
+        # Regex pattern to match Yellow Taxi files with date
+        pattern = re.compile(r"(yellow_tripdata_)(\d{4}-\d{2})\.parquet", re.IGNORECASE)
 
-                      data = pd.read_parquet(full_url, columns=cols)
-                      data =data[data['tpep_pickup_datetime']>= taxi_data_date]
-                      data =data[data['tpep_pickup_datetime']< taxi_data_next_month]
+        # Loop through all links
+        data= None
+        for link in soup.find_all("a", href=True):
+            href = link["href"]
+            match = pattern.search(href)
+            if match:
+                date_str = match.group(2)
+                file_date = datetime.strptime(date_str, "%Y-%m")
+                if file_date == taxi_data_date:
+                    full_url = href if href.startswith("http") else f"https://www.nyc.gov{href}"
+                    print(f"Downloading data {date_str} from {full_url}")
+                    cols = ["tpep_pickup_datetime","tpep_dropoff_datetime",
+                            "PULocationID","DOLocationID","trip_distance"]
 
-                      logger.info(f"data for {date_str} successfully downloaded")
+                    data = pd.read_parquet(full_url, columns=cols)
+                    data =data[data['tpep_pickup_datetime']>= taxi_data_date]
+                    data =data[data['tpep_pickup_datetime']< taxi_data_next_month]
 
-          if data is None:
-            logger.info(f"No data found for the {date_str}.")
-          else:
-            ## saving the datasets
-            taxi_path_dir = f"{self.taxi_path}/taxi_data_{taxi_data_date}.parquet"
-            data.to_parquet(taxi_path_dir, index=False)
-            logger.info(f'Saving the NYC_taxi datasets to {taxi_path_dir}')
+                    logger.info(f"data for {date_str} successfully downloaded")
 
-          taxi_data_date = taxi_data_next_month
-        
-        print(f"Successfully saved data from {taxi_data_date}_to_{taxi_data_month_end} to {self.weather_path}")
+        if data is None:
+          logger.info(f"No data found for the {date_str}.")
+        else:
+          ## saving the datasets
+          taxi_path_dir = f"{self.taxi_path}/taxi_data_{taxi_data_date}.parquet"
+          data.to_parquet(taxi_path_dir, index=False)
+          logger.info(f'Saving the NYC_taxi datasets to {taxi_path_dir}')
 
-      except Exception as e:
-        logger.info(f"Error retrieving the data for {date_str}")
-        raise RideDemandException(e,sys)
+        taxi_data_date = taxi_data_next_month
+      
+      print(f"Successfully saved data from {taxi_data_date}_to_{taxi_data_month_end} to {self.weather_path}")
+
+    except Exception as e:
+      logger.info(f"Error retrieving the data for {date_str}")
+      raise RideDemandException(e,sys)
 
     def extract_nyc_weather_data(self):
+      """Download monthly weather data from VisualCrossing and save CSVs.
+
+      Iterates over months between `self.start_date` and `self.end_date`
+      and persists hourly weather records per month.
+      """
       try:
 
         start_date = self.start_date.replace(day=1)

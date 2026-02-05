@@ -1,3 +1,9 @@
+"""Entrypoint script to run the model training pipeline.
+
+Loads training configuration, constructs a `ModelTrainer` and runs
+the end-to-end training and registration process.
+"""
+
 import os, sys
 import pandas as pd
 

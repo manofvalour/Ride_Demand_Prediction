@@ -1,3 +1,9 @@
+"""Script-level helper to extract month-by-month training artifacts.
+
+This small pipeline constructs an `ExtractTrainingData` instance and
+persists monthly taxi and weather data for a configured range.
+"""
+
 import sys
 
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -5,11 +11,14 @@ from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.config.configuration import ConfigurationManager
 from src.DynamicPricingEngine.component.ingest_training_data import ExtractTrainingData
 
+
 class FeaturePipeline:
+    """Run extraction of historical training datasets."""
     def __init__(self):
-        pass    
+        pass
 
     def initiate_training_data(self):
+        """Extract taxi and weather CSVs/parquets for the chosen date window."""
         try:
             logger.info('Extracting the Training Data...')
             config = ConfigurationManager()
@@ -19,7 +28,7 @@ class FeaturePipeline:
             training_data = ExtractTrainingData(data_ingestion_config, '2025-07-01', '2025-07-31')
             training_data.extract_nyc_yellow_taxi_data()
             training_data.extract_nyc_weather_data()
-            
+
         except Exception as e:
             logger.error(f"Failed to initiate training data, {e}")
-            raise RideDemandException(e,sys)
+            raise RideDemandException(e, sys)

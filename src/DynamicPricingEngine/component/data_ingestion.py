@@ -1,14 +1,18 @@
-from calendar import month
-import sys, os
-from pathlib import Path
-from typing import List
+"""Data ingestion helpers for pulling NYC taxi and weather datasets.
+
+This module provides the `DataIngestion` class which downloads taxi trip
+files from the NYC TLC site, fetches weather data from VisualCrossing,
+and aggregates trip-level data into hourly demand targets.
+"""
+
+import sys
+import os
 import pandas as pd
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 import requests
 import re
 from dotenv import load_dotenv
-import gc
 from dateutil.relativedelta import relativedelta
 import numpy as np
 
@@ -20,6 +24,11 @@ from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract, d
 load_dotenv()
 
 class DataIngestion:
+    """Class responsible for downloading and preparing raw input data.
+
+    Args:
+        config (DataIngestionConfig): Configuration with URLs and file paths.
+    """
     def __init__(self, config: DataIngestionConfig):
         try:
             ## two months into the past
@@ -49,7 +58,23 @@ class DataIngestion:
 
     ## things to do: (ingesting the data (weather and nyc_yellow_taxi_data)) -> nyc_tlc_url, 
 
-    def get_NYC_ride_data(self, taxi_type:str)->pd.DataFrame:
+    def get_NYC_ride_data(self, taxi_type: str) -> pd.DataFrame:
+      """Download and normalize trip data for a given taxi type.
+
+      The function scrapes the NYC TLC trip data page, locates the
+      parquet file for the configured month, reads only required
+      columns, normalizes column names across taxi types and performs
+      basic filtering and binning.
+
+      Args:
+          taxi_type (str): One of 'yellow', 'green', or 'hvfhv'.
+
+      Returns:
+          pd.DataFrame: A dataframe with standardized columns including
+          `pickup_datetime`, `dropoff_datetime`, `PULocationID`,
+          `DOLocationID`, `trip_miles`, `trip_duration_hr`, `MPH`,
+          `service_type`, and `bin`.
+      """
 
       taxi_data_url = self.config.taxi_data_url
       taxi_data_date = datetime.strptime(self.start_date, "%Y-%m-%d")
@@ -160,9 +185,17 @@ class DataIngestion:
         raise RideDemandException(e,sys)
       
     def derive_targets(self, yellow_df, green_df, hvfhv_df):
-        """
-        Transforms trip-level data into hourly demand targets.
-        df: The combined dataframe containing yellow, green, and hvfhv trips.
+        """Aggregate trip-level rows into hourly zone-level demand targets.
+
+        Args:
+            yellow_df (pd.DataFrame): Yellow taxi trips for the timeframe.
+            green_df (pd.DataFrame): Green taxi trips for the timeframe.
+            hvfhv_df (pd.DataFrame): HVFHV trips for the timeframe.
+
+        Returns:
+            pd.DataFrame: A dataframe indexed by `bin` and `PULocationID`
+            containing `target_yellow`, `target_green`, `target_hvfhv`,
+            and congestion/speed features.
         """
         try:
             ## concatinating the dataset
@@ -277,7 +310,18 @@ class DataIngestion:
            logger.error('Unable to create the target features')
            raise RideDemandException(e,sys)
 
-    def extract_nyc_weather_data(self)->pd.DataFrame:
+    def extract_nyc_weather_data(self) -> pd.DataFrame:
+        """Fetch hourly weather data from the configured weather API.
+
+        The method requests the VisualCrossing timeline API for the
+        date range defined on the ingestion object and flattens the
+        returned JSON into an hourly dataframe.
+
+        Returns:
+            pd.DataFrame: Hourly weather records with fields like
+            `datetime`, `temp`, `humidity`, `precip`, `windspeed`,
+            `feelslike`, and `visibility`.
+        """
 
         try:
             base_url = self.config.weather_data_url
@@ -300,7 +344,7 @@ class DataIngestion:
                 response = requests.get(url, params=params, timeout=30) # Always set a timeout
                 response.raise_for_status()
 
-            except requests.exceptions.HTTPError as http_err:
+            except requests.exceptions.HTTPError:
                 logger.error(f"CRITICAL: HTTP error. Status: {response.status_code} | Response: {response.text[:200]}")
                 # Raising the error stops the pipeline immediately
                 raise RideDemandException(f"API failed with status {response.status_code}", sys)
@@ -339,7 +383,13 @@ class DataIngestion:
             raise RideDemandException(e,sys)
         
     
-    def save_data_to_artifact(self, nyc_taxi_data, nyc_weather_data)->None:
+    def save_data_to_artifact(self, nyc_taxi_data, nyc_weather_data) -> None:
+        """Persist downloaded taxi and weather datasets to artifact paths.
+
+        Args:
+            nyc_taxi_data (pd.DataFrame): Trip-level taxi dataframe.
+            nyc_weather_data (pd.DataFrame): Hourly weather dataframe.
+        """
         try:
             taxi_file_path = self.config.taxi_data_local_file_path
             weather_file_path = self.config.weather_data_local_file_path
@@ -358,6 +408,15 @@ class DataIngestion:
             raise RideDemandException(e,sys)
         
     def initiate_data_ingestion(self):
+        """Run the full ingestion flow.
+
+        This convenience method downloads taxi and weather data, derives
+        hourly targets and returns a tuple of `(taxi_df, weather_df)`
+        ready for downstream transformation.
+
+        Returns:
+            tuple[pd.DataFrame, pd.DataFrame]: `(taxi_df, weather_df)`
+        """
         try:
             yellow_df = self.get_NYC_ride_data('yellow')
             green_df = self.get_NYC_ride_data('green')
@@ -368,7 +427,7 @@ class DataIngestion:
             logger.info(f'Taxi_data downloaded. HVFHV_data_size: {hvfhv_df.shape}')
 
             taxi_df = self.derive_targets(yellow_df, green_df, hvfhv_df)
-            logger.info(f"Target feature derived successfully!")
+            logger.info("Target feature derived successfully!")
 
             weather_df = self.extract_nyc_weather_data()
             logger.info(f'Weather_data downloaded. Weather_data_size: {weather_df.shape}')

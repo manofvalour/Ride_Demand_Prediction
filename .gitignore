@@ -1,14 +1,75 @@
-venv/
-data/
-artifacts/
-logs/
 notebook/
-logs/
-.env
 mlruns/
 data.csv/
 catboost_info/
-__pycache__/
 node_modules/
-.vscode/
 *.pyc
+
+
+# Byte-compiled / caches
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+.eggs/
+pip-wheel-metadata/
+
+# Virtual environments
+.env
+.venv/
+venv/
+env/
+ENV/
+
+# Tool caches and reports
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+
+# IDEs and editors
+.vscode/
+.idea/
+*.sublime-*
+*.swp
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs and runtime files
+logs/
+*.log
+instance/
+*.sqlite3
+
+# Data, models, artifacts (large files)
+data/
+datasets/
+models/
+*.pkl
+*.joblib
+artifacts/
+
+# Secrets and credentials
+.env
+*.env
+*.key
+*.pem
+credentials.json
+secrets/
+*.secret
+.env.*
+
+# Misc
+*.bak
+*.tmp

@@ -1,12 +1,19 @@
+"""Common utilities for file IO, shapefile handling and serialization.
+
+Provides helpers to read YAML configuration, create directories,
+load/save pickles, and download/convert shapefiles used across the
+project.
+"""
+
 import yaml
 from box import ConfigBox
 import dill
-import os,sys
+import os
+import sys
 from ensure import ensure_annotations
-from typing import Any, List, Union
+from typing import List, Union
 from types import NoneType
 from box.exceptions import BoxValueError
-from datetime import datetime, timedelta
 from pathlib import Path
 import requests
 import zipfile
@@ -160,11 +167,19 @@ def load_pickle(file_path:str)->object:
         raise RideDemandException(e,sys)
     
 def save_yaml(file_path:str, yaml_file:object)-> None:
+    """Save a Python object as YAML to `file_path`.
 
+    Args:
+        file_path (str): Destination path for the YAML file.
+        yaml_file (object): Python object serializable by PyYAML.
+    """
     try:
-        pass
+        os.makedirs(os.path.dirname(file_path), exist_ok=True)
+        with open(file_path, 'w') as f:
+            yaml.safe_dump(yaml_file, f)
+        logger.info(f"YAML saved to: {file_path}")
     except Exception as e:
-        raise RideDemandException(e,sys)
+        raise RideDemandException(e, sys)
     
 
 
@@ -206,7 +221,7 @@ def load_shapefile_from_zipfile(url, extract_to)->gpd.GeoDataFrame:
                logger.info("Shapefile loaded successfully.")
                break 
             else:
-                logger.error(f"Error: Content from server is not a valid zip file.")
+                logger.error("Error: Content from server is not a valid zip file.")
               
         except Exception as e:
             logger.error(f"Error on attempt {attempt+1}: {e}")

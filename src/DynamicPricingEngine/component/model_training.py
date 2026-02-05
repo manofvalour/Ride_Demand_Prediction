@@ -1,15 +1,20 @@
-import os, sys
+"""Model training utilities for multi-output demand prediction.
+
+Provides `ModelTrainer` which retrieves engineered features from the
+feature store, splits data, trains candidate regressors and registers
+the best model in the model registry.
+"""
+
+import os
+import sys
 import pandas as pd
 from dateutil.relativedelta import relativedelta
 from datetime import timedelta, datetime
 from lightgbm import LGBMRegressor
 from xgboost import XGBRegressor
-from catboost import CatBoostRegressor
-from sklearn.ensemble import RandomForestRegressor
 import dagshub
 import dill
 import mlflow
-from pathlib import Path
 from hsml.schema import Schema
 from hsml.model_schema import ModelSchema
 
@@ -24,6 +29,11 @@ from dotenv import load_dotenv
 load_dotenv()
 
 class ModelTrainer:
+    """Orchestrates model training, evaluation, and model registry upload.
+
+    Args:
+        config (ModelTrainerConfig): Training-related configuration and paths.
+    """
     def __init__(self, config: ModelTrainerConfig):
         try:
             dagshub.init(repo_owner='manofvalour', 
@@ -46,6 +56,12 @@ class ModelTrainer:
             raise RideDemandException(e,sys)
         
     def retrieve_engineered_feature(self) -> pd.DataFrame:
+        """Fetch engineered features from Hopsworks feature store.
+
+        Returns:
+            pd.DataFrame: A pandas dataframe with historical features and
+            target columns required for training and evaluation.
+        """
         try:
 
             now = datetime.today()
@@ -97,6 +113,17 @@ class ModelTrainer:
             raise RideDemandException(e,sys)
        
     def split_data(self, df):
+        """Split dataset by zone into train/val/test using configured ratios.
+
+        The method splits each zone's time series independently to avoid
+        leakage across zones and then concatenates the partitions.
+
+        Args:
+            df (pd.DataFrame): Engineered dataframe indexed by time.
+
+        Returns:
+            tuple: `(train_df, val_df, test_df)` dataframes.
+        """
         try:
             # Split per zone
             train_list = []
@@ -117,7 +144,7 @@ class ModelTrainer:
             val_df = pd.concat(val_list).sort_index()
             test_df = pd.concat(test_list).sort_index()
 
-            logger.info(f"Data split successfully!")
+            logger.info("Data split successfully!")
             logger.info(f"Train split: {train_df.shape}")
             logger.info(f"Val Split: {val_df.shape}")
             logger.info(f"Test split: {test_df.shape}")
@@ -125,14 +152,15 @@ class ModelTrainer:
             return train_df, val_df, test_df
         
         except Exception as e:
-            logger.error(f"Unable to split the dataset")
+            logger.error("Unable to split the dataset")
             raise RideDemandException(e, sys)
 
-    def _prepare_features(self, df: pd.DataFrame, 
-                      targets: list[str]=['target_yellow', 'target_green', 'target_hvfhv']):
-        """
-        Separates the dataframe into features (X) and targets (y), 
-        converts categorical types, and ensures only valid features are kept.
+    def _prepare_features(self, df: pd.DataFrame,
+                          targets: list[str] = ['target_yellow', 'target_green', 'target_hvfhv']):
+        """Prepare feature matrix `X` and target matrix `y` for training.
+
+        Converts configured categorical columns to dtype `category` and
+        drops non-feature columns.
         """
         try:
             #Separate targets and features
@@ -155,9 +183,17 @@ class ModelTrainer:
             logger.error(f"Feature preparation failed: {e}")
             raise RideDemandException(e,sys)
 
-    def model_training_and_evaluation(self, train_df:pd.DataFrame,
-                                    val_df:pd.DataFrame,
-                                    test_df:pd.DataFrame):
+    def model_training_and_evaluation(self, train_df: pd.DataFrame,
+                                      val_df: pd.DataFrame,
+                                      test_df: pd.DataFrame):
+        """Train candidate models, evaluate them and return the best model.
+
+        Uses the `evaluate_model` helper (Optuna-backed) to tune and select
+        the most performant model according to RMSE.
+
+        Returns:
+            tuple: `(best_model, best_model_metrics, X_test, y_test)`
+        """
         try:
             target = ['target_yellow', 'target_green', 'target_hvfhv']
 
@@ -195,9 +231,13 @@ class ModelTrainer:
             logger.error(f"Model training and evaluation failed, {e}")
             raise RideDemandException(e,sys)
         
-    def save_model_to_model_store(self, model, model_metrics, 
+    def save_model_to_model_store(self, model, model_metrics,
                                   x_test, y_test):
-        """ saving model to the artifact store """
+        """Persist the trained model to disk and register it in Hopsworks.
+
+        Stores a serialized model artifact and registers input/output
+        schemas with the model registry for reproducibility.
+        """
         try:
             # saving model 
             model_dir = self.config.trained_model_path ## model path
@@ -228,11 +268,16 @@ class ModelTrainer:
             logger.info(f"Trained model saved to {model_dir}")
 
         except Exception as e:
-            logger.error(f'Failed to save the Best model to the model artifact store')
+            logger.error('Failed to save the Best model to the model artifact store')
             raise RideDemandException(e,sys)
         
 
     def initiate_model_training(self):
+        """Execute the full training pipeline: fetch data, train, and save.
+
+        This method ties together retrieval of engineered features,
+        splitting, training/evaluation, and model registration.
+        """
         try:
             logger.info('Extracting the Training Data...')
           #  logger.info('Model Training Configuration successfully loaded')

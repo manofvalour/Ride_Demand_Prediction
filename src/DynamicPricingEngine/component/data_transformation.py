@@ -1,15 +1,19 @@
-import os, sys, pickle
+"""Feature engineering and transformation utilities using Dask/GeoPandas.
+
+This module exposes the `DataTransformation` class which merges weather
+and target data, engineers temporal, neighbor and autoregressive
+features, and pushes the transformed dataset to a feature store.
+"""
+
+import os
+import sys
+import pickle
 import pandas as pd
-import numpy as np
 import geopandas as gpd
 import dask.dataframe as dd
-from datetime import datetime, timedelta
 import hopsworks
-from dateutil.relativedelta import relativedelta
 from dotenv import load_dotenv
-import time
-from pathlib import Path
-from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential, retry_if_exception_message
+from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 
 load_dotenv()
@@ -18,9 +22,16 @@ from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.entity.config_entity import DataTransformationConfig
 from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile
-from src.DynamicPricingEngine.utils.data_ingestion_utils import time_subtract
 
 class DataTransformation:
+    """Handles large-scale feature engineering for model training.
+
+    The class uses Dask for scalable IO and partitioned computation,
+    and GeoPandas for spatial neighbor calculations.
+
+    Args:
+        config (DataTransformationConfig): Configuration with paths and URLs.
+    """
     def __init__(self, config: DataTransformationConfig):
         
         self.config = config
@@ -39,6 +50,10 @@ class DataTransformation:
         self._neighbor_cache_path = os.path.join(self.config.shapefile_dir, "neighbors.pkl")
 
     def _get_neighbor_dict(self) -> dict:
+        """Return a mapping of zone -> adjacent zone IDs.
+
+        The result is cached on disk to avoid repeated spatial joins.
+        """
         if self._neighbor_dict is not None:
             return self._neighbor_dict
 
@@ -70,6 +85,11 @@ class DataTransformation:
 
 
     def merge_weather_features(self) -> dd.DataFrame:
+        """Join hourly weather features onto the target taxi dataframe.
+
+        Returns:
+            dd.DataFrame: Dask dataframe joined on the `bin` timestamp.
+        """
         try:
             
             # Weather alignment
@@ -222,6 +242,10 @@ class DataTransformation:
 
 
     def citywide_hourly_demand(self, df: dd.DataFrame) -> dd.DataFrame:
+        """Compute citywide hourly pickup aggregates and merge into `df`.
+
+        Adds `{target}_city_hour_pickups` columns for each service.
+        """
         try:
             services = ['target_yellow', 'target_green', 'target_hvfhv']
                 
@@ -244,6 +268,11 @@ class DataTransformation:
 
 
     def generate_neighbor_features(self, df: dd.DataFrame) -> dd.DataFrame:
+        """Construct neighbor pickup aggregates for each zone and hour.
+
+        Uses a precomputed neighbor mapping to sum neighbor pickups and
+        attach them as features like `neighbor_pickups_target_yellow`.
+        """
         try:
             neighbor_dict = self._get_neighbor_dict()
 
@@ -312,6 +341,11 @@ class DataTransformation:
             raise RideDemandException(e,sys)
         
     def engineer_autoregressive_signals(self, df: dd.DataFrame) -> dd.DataFrame:
+        """Create lagged autoregressive features for targets and aggregates.
+
+        Produces 1-hour and 24-hour lags for zone-level, city-level, and
+        neighbor-level signals used by the predictive model.
+        """
         try:
             # Define the three targets we are tracking
             services = ['target_yellow', 'target_green', 'target_hvfhv']
@@ -368,6 +402,11 @@ class DataTransformation:
             
         
     def save_data_to_feature_store(self, df):
+        """Persist transformed dataframe to a local parquet and/or remote store.
+
+        This will first ensure neighbor features are present, then write
+        the parquet file at the configured `transformed_data_file_path`.
+        """
         try:
             df = self.generate_neighbor_features(df)
             transformed_data_store = self.config.transformed_data_file_path
@@ -390,7 +429,11 @@ class DataTransformation:
         before_sleep=lambda retry_state: logger.warning(f"Retrying Hopsworks push... Attempt {retry_state.attempt_number}"),
         reraise=True
     )
-    def push_transformed_data_to_feature_store(self, data)-> None:
+    def push_transformed_data_to_feature_store(self, data) -> None:
+        """Push the transformed dataset into Hopsworks Feature Store.
+
+        Retries on transient errors (decorated with `tenacity.retry`).
+        """
         try:
             api = os.getenv('HOPSWORKS_API_KEY')
             
@@ -420,6 +463,12 @@ class DataTransformation:
             raise  RideDemandException(e,sys)
          
     def initiate_feature_engineering(self):
+        """Run the end-to-end transformation pipeline and push to FS.
+
+        This is a convenience orchestration method that executes all the
+        transformation steps in order and attempts to push the result to
+        the configured feature store.
+        """
         try:
             df = self.merge_weather_features()
 
@@ -442,5 +491,5 @@ class DataTransformation:
             self.push_transformed_data_to_feature_store(df)
         
         except Exception as e:
-            logger.error(f"Unable to complete feature engineering process", e)
+            logger.error("Unable to complete feature engineering process", e)
             raise RideDemandException(e,sys)

@@ -1,3 +1,9 @@
+"""CLI entrypoint to run the real-time prediction pipeline.
+
+Invoked as a script, this loads inference configuration, constructs an
+`Inference` object and runs `initiate_inference`.
+"""
+
 import sys
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 from src.DynamicPricingEngine.logger.logger import logger

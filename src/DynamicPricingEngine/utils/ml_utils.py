@@ -1,11 +1,15 @@
+"""Machine learning helpers: Optuna tuning, evaluation and MLflow logging.
+
+Contains `_ModelTrial` wrapper used for Optuna tuning and convenience
+functions to log and evaluate multi-output regressors used by the
+training pipeline.
+"""
 # optuna_evaluate_with_metrics.py
 import sys
-from typing import Dict, Any, Tuple
+from typing import Dict, Any
 import optuna
 from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
-import pandas as pd
 import numpy as np
-import os, sys
 import mlflow
 from sklearn.multioutput import MultiOutputRegressor
 
@@ -107,6 +111,11 @@ class _ModelTrial:
 
  ## For tracking experiments
 def log_model(name, model, params, X_val, y_val):
+    """Log model parameters and validation metrics to MLflow.
+
+    Returns a tuple of aggregated `(rmse, mae, r2)` averaged across
+    individual targets.
+    """
     try:
         with mlflow.start_run():
 
@@ -146,8 +155,14 @@ def log_model(name, model, params, X_val, y_val):
 
 
 ## Evaluating models
-def evaluate_model(x_train, y_train, x_test, y_test, 
+def evaluate_model(x_train, y_train, x_test, y_test,
                    models, param_spaces, n_trials=30):
+    """Tune, train and evaluate a set of candidate models.
+
+    For each candidate model, runs Optuna tuning via `_ModelTrial`,
+    fits a final `MultiOutputRegressor`, logs metrics and returns a
+    summary report and the trained model objects.
+    """
     try:
         report = {}
         trained_models = {}
