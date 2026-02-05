@@ -7,7 +7,6 @@ This repository implements a demand prediction for ride-hailing. It contains dat
 
 - Usage and dataset details: [docs/USAGE.md](docs/USAGE.md)
 - Project components and API: [docs/COMPONENTS.md](docs/COMPONENTS.md)
-- Contributing & development notes: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
 ## Quickstart
 
