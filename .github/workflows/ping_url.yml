@@ -1,10 +1,13 @@
 name: Keep Render Alive
 
 on:
-  schedule:
-    # Runs every 14 minutes
-    - cron: '*/8 * * * *'
-  workflow_dispatch: # Allows you to run it manually
+  # This replaces the 'schedule' section
+  repository_dispatch:
+    types: [easycron_job]
+  workflow_dispatch:      # Keep this so you can still run it manually for testing
+
+permissions:
+  contents: write
 
 jobs:
   ping:

@@ -1,11 +1,11 @@
 name: Hourly NYC Prediction
 
 on:
-  schedule:
-    - cron: '23 * * * *'  # Runs at the start of every hour
-  workflow_dispatch:      # Allows manual triggers
+  # This replaces the 'schedule' section
+  repository_dispatch:
+    types: [easycron_job]
+  workflow_dispatch:      # Keep this so you can still run it manually for testing
 
-# Permissions needed to commit changes back to the repo
 permissions:
   contents: write
 
