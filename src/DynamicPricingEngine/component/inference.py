@@ -526,11 +526,10 @@ class Inference:
             if target_time.minute < 40:
               target_time = target_time.replace(hour=target_time.hour)
             else:
-              target_time = target_time.replace(hour=target_time.hour + 1)
+              target_time = target_time +timedelta(hours=1)
             
             # Round to the top of the hour (e.g., 10:45 -> 10:00)
             target_hour = target_time.replace(minute=0, second=0, microsecond=0)
-           # print(target_hour)
 
             # Filtering for the current hour and forward
             df_filtered = df.loc[df.index == target_hour]
