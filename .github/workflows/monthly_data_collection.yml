@@ -29,7 +29,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Collect & Process Features
-        run: python collect_features.py
+        run: python Data_retrieval_and_feature_engineering.py
         env:
           NYC_DATA_TOKEN: ${{ secrets.API_KEY }}
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
