@@ -49,7 +49,8 @@ class ModelTrainer:
                              'is_rush_hour','pulocationid', 
                              "pickup_month"]
             self.project = hopsworks.login(project='RideDemandPrediction',
-                                      api_key_value=self.api_key)
+                                           host= 'https://eu-west.cloud.hopsworks.ai',
+                                           api_key_value=self.api_key)
 
 
         except Exception as e:
