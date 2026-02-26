@@ -438,7 +438,9 @@ class DataTransformation:
             api = os.getenv('HOPSWORKS_API_KEY')
             
             ##initializing and login to hopswork feature store
-            project = hopsworks.login(project='RideDemandPrediction', api_key_value=api)
+            project = hopsworks.login(project='RideDemandPrediction', 
+                                      host= 'https://eu-west.cloud.hopsworks.ai',
+                                      api_key_value=api)
             fs = project.get_feature_store()
 
             ##converting dask dataframe to pandas dataframe
