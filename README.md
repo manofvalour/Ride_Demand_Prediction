@@ -3,10 +3,6 @@
 
 This repository implements a demand prediction for ride-hailing. It contains data ingestion, feature engineering, model training pipelines, and a Flask-based dashboard/inference service.
 
-**Quick links:**
-
-- Usage and dataset details: [docs/USAGE.md](docs/USAGE.md)
-- Project components and API: [docs/COMPONENTS.md](docs/COMPONENTS.md)
 
 ## Quickstart
 
@@ -74,9 +70,7 @@ python /Dynamic-Pricing-Engine/training_pipeline.py
 
 Key folders and files:
 
-- `app.py` : Flask dashboard & API endpoint
+- `app.py` : API endpoint
 - `src/DynamicPricingEngine` : core application modules (ingestion, transformation, training, inference)
 - `training_pipeline.py` and `prediction_pipeline.py` : pipeline runners
 - `requirements.txt` : pinned Python dependencies
-
-For more details see the docs directory.
