@@ -31,7 +31,7 @@ jobs:
           if [ -f requirements.txt ]; then pip install -r requirements.txt; fi
 
       - name: Run Training Script
-        run: python training_pipeline.py
+        run: python pipelines/training.py
         env:
           # If your training script needs API keys (e.g., for weather data or S3)
           API_KEY: ${{ secrets.API_KEY }}
