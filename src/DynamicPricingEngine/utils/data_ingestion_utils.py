@@ -10,6 +10,7 @@ from datetime import datetime
 import pandas as pd
 import gc
 
+from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
 
 
@@ -83,6 +84,6 @@ def dtype_downcast(df: pd.DataFrame) -> pd.DataFrame:
                 df[col] = df[col].astype('category')
 
     end_mem = df.memory_usage(deep=True).sum() / 1024**2
-    print(f"Memory reduced from {start_mem:.2f} MB to {end_mem:.2f} MB")
+    logger.info(f"Memory reduced from {start_mem:.2f} MB to {end_mem:.2f} MB")
     gc.collect()
     return df

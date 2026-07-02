@@ -135,12 +135,13 @@ def log_model(name, model, params, X_val, y_val):
                     mlflow.log_metric(f"{target}_val_rmse", rmse)
                     mlflow.log_metric(f"{target}_val_mae", mae)
                     mlflow.log_metric(f"{target}_val_r2_score", r2)
-                    mlflow.log_params(model.get_params())
-                    logger.info(f"{name} model parameter and evaluation metrics tracked with MLflow")
-                
+
                     rmse_values.append(rmse)
                     mae_values.append(mae)
                     r2_values.append(r2)
+
+                mlflow.log_params(model.get_params())
+                logger.info(f"{name} model parameter and evaluation metrics tracked with MLflow")
                 
                 # Calculate overall metrics as the mean of individual target metrics
                 overall_rmse = np.mean(rmse_values)

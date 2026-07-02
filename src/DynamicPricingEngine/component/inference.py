@@ -21,6 +21,7 @@ import pickle
 from sodapy import Socrata
 import joblib
 import time
+import json
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential
 
 load_dotenv()
@@ -30,7 +31,28 @@ from src.DynamicPricingEngine.exception.customexception import RideDemandExcepti
 from src.DynamicPricingEngine.entity.config_entity import InferenceConfig
 from src.DynamicPricingEngine.utils.common_utils import load_shapefile_from_zipfile, download_csv_from_web
 
-load_dotenv()
+_CACHE_TTL = 3600  # 1 hour default TTL for all caches
+
+
+def _load_cache(cache_path: str, max_age: int = _CACHE_TTL):
+    """Load a pickle cache if it exists and is younger than `max_age` seconds."""
+    if not os.path.exists(cache_path):
+        return None
+    if time.time() - os.path.getmtime(cache_path) > max_age:
+        return None
+    try:
+        with open(cache_path, "rb") as f:
+            return pickle.load(f)
+    except Exception:
+        return None
+
+
+def _write_cache(cache_path: str, data):
+    """Write data to a pickle cache file."""
+    os.makedirs(os.path.dirname(cache_path), exist_ok=True)
+    with open(cache_path, "wb") as f:
+        pickle.dump(data, f)
+
 
 class Inference:
     """Assemble features for real-time prediction and run the trained model.
@@ -52,6 +74,13 @@ class Inference:
         #Cache neighbor dictionary
             self._neighbor_dict = None
             self._neighbor_cache_path = os.path.join(self.config.shapefile_dir, "neighbors.pkl")
+
+        # Model cache path
+            self._model_cache_path = os.path.join(self.config.root_dir, "model_cache.pkl")
+            self._model_version_path = os.path.join(self.config.root_dir, "model_version.json")
+
+        # Zone lookup cache path
+            self._zone_lookup_cache_path = os.path.join(self.config.root_dir, "zone_lookup.pkl")
 
         except Exception as e:
             print("Error initializing Inference Pipeline", e)
@@ -82,7 +111,7 @@ class Inference:
         
         if zones_gdf is None:
             print("Failed to acquire shapefile after all retries.")
-            return e
+            return {}
 
         # Spatial Join Logic
         print("Calculating adjacency (touches)...")
@@ -179,7 +208,7 @@ class Inference:
             weather_df['is_night_hour'] = (~weather_df['pickup_hour'].between(7, 20)).astype(int)
             weather_df.rename(columns={'datetime':'bin'}, inplace=True)
             
-            logger.error("Temporal Feature for prediction generated successfully.")
+            logger.info("Temporal Feature for prediction generated successfully.")
             return weather_df
 
         except Exception as e:
@@ -338,25 +367,49 @@ class Inference:
         """Estimate zone-level average speeds using NYC speed feeds.
 
         Uses a Socrata dataset as the primary source and falls back to
-        borough averages when zone-level links are not found.
+        borough averages when zone-level links are not found. Speed data
+        is cached locally for 1 hour to avoid redundant API calls.
         """
         try:
-            app_token = os.getenv("NYC_OPEN_DATA_APP_TOKEN")
+            speed_cache_path = os.path.join(self.config.shapefile_dir, "speed_data.pkl")
 
-            # Using a context manager ensures the session closes properly
-            with Socrata("data.cityofnewyork.us", app_token) as client:
-                logger.info('Loading speed dataset...')
-                results = client.get("i4gi-tjb9", limit=2000, order="data_as_of DESC")
-                speed_data = pd.DataFrame.from_records(results)
-            
-            # Pre-process speed data once
-            speed_data['speed'] = pd.to_numeric(speed_data['speed'], errors='coerce')
-            borough_map = speed_data.groupby('borough')['speed'].mean().to_dict()
+            # Try loading from TTL cache (1 hour)
+            speed_data = None
+            if os.path.exists(speed_cache_path):
+                cache_age = time.time() - os.path.getmtime(speed_cache_path)
+                if cache_age < 3600:
+                    try:
+                        with open(speed_cache_path, "rb") as f:
+                            cache = pickle.load(f)
+                            speed_data = cache['speed_data']
+                            borough_map = cache['borough_map']
+                        logger.info("Loaded speed data from cache")
+                    except Exception:
+                        speed_data = None
 
-            logger.info('Downloading zone lookup table...')
-            zone_df = download_csv_from_web(self.config.zone_lookup_table_url)
-            
-            # First, attach Zone/Borough info to your main dataframe
+            if speed_data is None:
+                app_token = os.getenv("NYC_OPEN_DATA_APP_TOKEN")
+                with Socrata("data.cityofnewyork.us", app_token) as client:
+                    logger.info('Loading speed dataset from Socrata...')
+                    results = client.get("i4gi-tjb9", limit=2000, order="data_as_of DESC")
+                    speed_data = pd.DataFrame.from_records(results)
+
+                speed_data['speed'] = pd.to_numeric(speed_data['speed'], errors='coerce')
+                borough_map = speed_data.groupby('borough')['speed'].mean().to_dict()
+
+                os.makedirs(self.config.shapefile_dir, exist_ok=True)
+                with open(speed_cache_path, "wb") as f:
+                    pickle.dump({'speed_data': speed_data, 'borough_map': borough_map}, f)
+                logger.info("Speed data cached to disk")
+
+            zone_df = _load_cache(self._zone_lookup_cache_path, max_age=86400)
+            if zone_df is None:
+                logger.info('Downloading zone lookup table...')
+                zone_df = download_csv_from_web(self.config.zone_lookup_table_url)
+                _write_cache(self._zone_lookup_cache_path, zone_df)
+            else:
+                logger.info('Loaded zone lookup table from cache')
+
             df = df.merge(
                 zone_df[['LocationID', 'Zone', 'Borough']], 
                 left_on='pulocationid', 
@@ -546,34 +599,48 @@ class Inference:
     def download_model_and_load(self):
         """Download the best registered model from the model registry and load it.
 
-        Attempts to find common serialized filenames and returns a loaded
-        scikit-learn compatible model object.
+        Uses a local version cache to skip re-downloading when the registry
+        version has not changed.
         """
-        # Attempt the connection/download up to 3 times
+        mr = self.project.get_model_registry()
+        model_meta = mr.get_best_model("ride_demand_prediction_model", metric='rmse', direction='min')
+
+        # Check version cache
+        cached_version = None
+        if os.path.exists(self._model_version_path):
+            try:
+                with open(self._model_version_path) as f:
+                    cached_version = json.load(f).get('version')
+            except Exception:
+                pass
+
+        current_version = str(getattr(model_meta, 'version', '')) or str(getattr(model_meta, 'id', ''))
+
+        if cached_version == current_version and os.path.exists(self._model_cache_path):
+            try:
+                loaded_model = joblib.load(self._model_cache_path)
+                logger.info(f"Model loaded from cache (version {current_version})")
+                return loaded_model
+            except Exception:
+                pass
+
+        # Download from registry
         for attempt in range(3):
             try:
-                mr = self.project.get_model_registry()
+                logger.info(f"Downloading model version {current_version} from Hopsworks...")
+                model_dir = model_meta.download()
 
-                #Get metadata and download files
-                model_meta = mr.get_best_model("ride_demand_prediction_model", metric = 'rmse', direction='min')
-
-                print(f"Attempt {attempt + 1}: Downloading model...")
-                model_dir = model_meta.download() # This is the root directory of the downloaded artifacts
-
-                # Identify and Load the actual model file
                 possible_model_names = ["model.pkl", "model.joblib", "ride_demand_prediction_model.pkl"]
                 found_model_file = None
 
-                # Check the root of the downloaded directory first
                 for name in possible_model_names:
                     potential_path = os.path.join(model_dir, name)
                     if os.path.exists(potential_path):
                         found_model_file = potential_path
                         break
 
-                # checking a common 'model' subdirectory (e.g., for MLflow-saved models)
                 if found_model_file is None:
-                    model_subdir = os.path.join(model_dir, "model") # Common MLflow subdirectory
+                    model_subdir = os.path.join(model_dir, "model")
                     for name in possible_model_names:
                         potential_path = os.path.join(model_subdir, name)
                         if os.path.exists(potential_path):
@@ -581,19 +648,25 @@ class Inference:
                             break
 
                 if found_model_file is None:
-                    raise FileNotFoundError(f"No model file found in '{model_dir}' or its 'model' subdirectory with expected names.")
+                    raise FileNotFoundError(f"No model file found in '{model_dir}' or its 'model' subdirectory.")
 
                 loaded_model = joblib.load(found_model_file)
-                logger.info(f"Model loaded successfully from: {found_model_file}")
+                logger.info(f"Model loaded from: {found_model_file}")
+
+                # Update caches
+                os.makedirs(os.path.dirname(self._model_cache_path), exist_ok=True)
+                joblib.dump(loaded_model, self._model_cache_path)
+                with open(self._model_version_path, 'w') as f:
+                    json.dump({'version': current_version}, f)
 
                 return loaded_model
 
             except (ConnectionError, Exception) as e:
                 logger.error(f"Attempt {attempt + 1} failed: {e}")
                 if attempt < 2:
-                    time.sleep(5) # Wait 5 seconds before retrying
+                    time.sleep(5)
                 else:
-                    logger.error(f"unable to load the model from hopsworks, {e}")
+                    logger.error(f"Unable to load the model from Hopsworks: {e}")
                     raise RideDemandException(e, sys)
 
     def prepare_and_predict(self, model, final_df):

@@ -16,6 +16,6 @@ def compute_metrics(y_true, y_pred) -> dict:
     rmse = np.sqrt(mse)
 
     return {'mae': mae, 'mse': mse,
-            'r2_score': r2, 'rmse': rmse}
+            'R2_score': r2, 'rmse': rmse}
 
 

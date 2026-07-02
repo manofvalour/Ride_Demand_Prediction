@@ -1,76 +1,98 @@
-## 📊 Dataset Description
 # Ride Demand Prediction Engine
 
 This repository implements a demand prediction for ride-hailing. It contains data ingestion, feature engineering, model training pipelines, and a Flask-based dashboard/inference service.
 
+**Quick links:**
+
+- Usage and dataset details: [docs/USAGE.md](docs/USAGE.md)
+- Project components and API: [docs/COMPONENTS.md](docs/COMPONENTS.md)
 
 ## Quickstart
 
-1. Install dependencies:
+```bash
+pip install -r requirements.txt
+cp .env.example .env   # add your API keys
+python app.py          # dashboard at http://localhost:5000
+```
+
+Or with Docker:
 
 ```bash
-python -m pip install -r requirements.txt
+docker compose up --build
 ```
 
-2. Create a `.env` file in the project root with any required secrets (example):
+## API
+
+| Endpoint | Description |
+|---|---|
+| `GET /` | Dashboard frontend |
+| `GET /api/demand` | Latest predictions JSON (metadata + per-zone demand) |
+| `GET /taxi_zones.json` | NYC taxi zone GeoJSON for the map |
+
+## Pipelines
+
+| Script | Schedule | What it does |
+|---|---|---|
+| `python pipelines/data_retrieval.py` | Monthly | Downloads NYC TLC + weather data, engineers features, pushes to Hopsworks |
+| `python pipelines/training.py` | Monthly | Optuna tuning → trains MultiOutputRegressor → registers model |
+| `python pipelines/prediction.py` | Hourly | Live weather → inference → pushes predictions to Hopsworks |
+
+## Project layout
 
 ```
-HOPSWORKS_API_KEY=your_hopsworks_api_key
-API_KEY=your_visualcrossing_api_key
-NYC_OPEN_DATA_APP_TOKEN=optional_socrata_token
-```
-
-3. Run the dashboard / API server:
-
-```bash
-python app.py
-```
-
-The Flask app serves the frontend at `http://localhost:5000`. The API endpoint `/api/demand` returns the prediction JSON used by the map/dashboard.
-
-## HTTP API
-
-- `GET /api/demand` : Returns the latest predictions JSON used by the frontend map and dashboard. It contacts Hopsworks feature store to fetch prepared prediction rows and returns a structure with `metadata` and `predictions` keyed by zone id.
-- `GET /taxi_zones.json` : Serves the local `taxi_zones.json` geojson file for the frontend map.
-
-Example (local):
-
-```bash
-curl http://localhost:5000/api/demand | jq .
+├── app.py                 # Flask dashboard + API
+├── data/                  # GeoJSON, shapefiles
+├── pipelines/             # CLI entrypoints (data_retrieval, training, prediction)
+├── scripts/               # Dev utilities (template generator)
+├── src/DynamicPricingEngine/
+│   ├── component/         # data_ingestion, data_transformation, model_training, inference
+│   ├── config/            # ConfigurationManager → YAML → typed dataclasses
+│   ├── pipeline/          # feature_pipeline, training_data_ingestion_pipeline
+│   ├── utils/             # common_utils, ml_utils (Optuna), model_utils
+│   ├── logger/            # file + stdout logging
+│   ├── exception/         # RideDemandException
+│   └── constants/         # path constants
+├── config/config.yaml     # pipeline paths and URLs
+├── params.yaml            # ML hyperparameters and split ratios
+├── templates/index.html   # frontend dashboard
+├── static/style.css       # dashboard styles
+├── tests/                 # test suite
+├── Dockerfile             # multi-stage (dev / prod)
+└── requirements.txt       # pinned dependencies
 ```
 
 ## Environment variables
 
-- `HOPSWORKS_API_KEY` — API key for Hopsworks feature store and model registry.
-- `API_KEY` — API key for the VisualCrossing weather API (used by ingestion/inference).
-- `NYC_OPEN_DATA_APP_TOKEN` — (optional) Socrata app token for NYC open data speed feeds.
-- `PORT` — Flask port override (defaults to 5000).
+| Variable | Required | Source |
+|---|---|---|
+| `HOPSWORKS_API_KEY` | Yes | Hopsworks feature store + model registry |
+| `API_KEY` | Yes | VisualCrossing weather API |
+| `NYC_OPEN_DATA_APP_TOKEN` | No | Socrata NYC speed feed |
+| `PORT` | No | Flask port (default 5000) |
 
-## Developer quick commands
-
-- Run the Flask dashboard locally:
+## Docker
 
 ```bash
-python app.py
+# Dev mode (Flask debug server, hot-reload)
+docker compose up --build
+
+# Production mode (gunicorn + uvicorn)
+DOCKER_TARGET=prod docker compose up --build
 ```
 
-- Run the prediction pipeline manually (CLI):
+## Tests
 
 ```bash
-python /Dynamic-Pricing-Engine/prediction_pipeline.py
-```
-
-- Run the training pipeline manually (CLI):
-
-```bash
-python /Dynamic-Pricing-Engine/training_pipeline.py
+python -m pytest tests/
 ```
 
 ## Project layout
 
 Key folders and files:
 
-- `app.py` : API endpoint
+- `app.py` : Flask dashboard & API endpoint
 - `src/DynamicPricingEngine` : core application modules (ingestion, transformation, training, inference)
 - `training_pipeline.py` and `prediction_pipeline.py` : pipeline runners
 - `requirements.txt` : pinned Python dependencies
+
+For more details see the docs directory.

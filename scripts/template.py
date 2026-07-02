@@ -30,7 +30,10 @@ list_of_dir = [
     'notebook/research.ipynb',
     'templates/index.html',
     'static/style.css',
-    'DockerFile'
+    'data/.gitkeep',
+    'pipelines/__init__.py',
+    'scripts/__init__.py',
+    'Dockerfile'
 
 ]
 

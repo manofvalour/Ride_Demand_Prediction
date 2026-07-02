@@ -15,6 +15,7 @@ import re
 from dotenv import load_dotenv
 from dateutil.relativedelta import relativedelta
 import numpy as np
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from src.DynamicPricingEngine.logger.logger import logger
 from src.DynamicPricingEngine.exception.customexception import RideDemandException
@@ -32,7 +33,7 @@ class DataIngestion:
     def __init__(self, config: DataIngestionConfig):
         try:
             ## two months into the past
-            now = (datetime.today()-relativedelta(months=11))
+            now = (datetime.today()-relativedelta(months=2))
             end_date = now - timedelta(days=now.day) ## retrieving the last day of the previous month
 
             ## accessing the previous month
@@ -103,6 +104,7 @@ class DataIngestion:
 
         # Loop through all links
         data= None
+        date_str = self.start_date
         for link in soup.find_all("a", href=True):
             href = link["href"]
             match = pattern.search(href)
@@ -310,7 +312,7 @@ class DataIngestion:
            logger.error('Unable to create the target features')
            raise RideDemandException(e,sys)
 
-    def extract_nyc_weather_data(self) -> pd.DataFrame:
+    def extract_nyc_weather_data(self, api_key: str) -> pd.DataFrame:
         """Fetch hourly weather data from the configured weather API.
 
         The method requests the VisualCrossing timeline API for the
@@ -328,7 +330,7 @@ class DataIngestion:
             location: str = "New York, NY, United States"
             start_of_month_str = self.start_date
             end_of_month_str = self.end_date
-            api_key = self.api_key
+            api_key = api_key
 
             params = {
                 "unitGroup": "us",
@@ -341,7 +343,7 @@ class DataIngestion:
             logger.info(f"Fetching data from {start_of_month_str} to {end_of_month_str}...")
 
             try:
-                response = requests.get(url, params=params, timeout=30) # Always set a timeout
+                response = requests.get(url, params=params, timeout=30)
                 response.raise_for_status()
 
             except requests.exceptions.HTTPError:
@@ -418,9 +420,18 @@ class DataIngestion:
             tuple[pd.DataFrame, pd.DataFrame]: `(taxi_df, weather_df)`
         """
         try:
-            yellow_df = self.get_NYC_ride_data('yellow')
-            green_df = self.get_NYC_ride_data('green')
-            hvfhv_df = self.get_NYC_ride_data('hvfhv')
+            with ThreadPoolExecutor(max_workers=3) as executor:
+                futures = {
+                    executor.submit(self.get_NYC_ride_data, 'yellow'): 'yellow',
+                    executor.submit(self.get_NYC_ride_data, 'green'): 'green',
+                    executor.submit(self.get_NYC_ride_data, 'hvfhv'): 'hvfhv',
+                }
+                results = {}
+                for future in as_completed(futures):
+                    label = futures[future]
+                    results[label] = future.result()
+
+            yellow_df, green_df, hvfhv_df = results['yellow'], results['green'], results['hvfhv']
 
             logger.info(f'Taxi_data downloaded. yellow_taxi_data_size: {yellow_df.shape}')
             logger.info(f'Taxi_data downloaded. Green_taxi_data_size: {green_df.shape}')
