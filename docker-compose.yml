@@ -1,0 +1,13 @@
+services:
+  app:
+    build:
+      context: .
+      target: ${DOCKER_TARGET:-dev}
+    image: ride-demand-prediction
+    container_name: ride-demand-app
+    ports:
+      - "${PORT:-5000}:5000"
+    env_file:
+      - path: .env
+        required: false
+    restart: unless-stopped
